@@ -102,7 +102,9 @@ export async function removeCommand(args: string[]): Promise<void> {
 
   if (!deploymentExists) {
     // Check if the directory exists on disk even without state entry
-    const dirExists = await remoteExists(connection, deploymentDir);
+    const dirExists = await remoteExists(connection, deploymentDir, {
+      requiresSudo: true,
+    });
     if (!dirExists) {
       throw new Error(
         `Environment "${environment}" not found.\n\n` +
@@ -124,8 +126,8 @@ export async function removeCommand(args: string[]): Promise<void> {
 
   // 2. Remove deployment directory
   console.log("→ Removing deployment directory...");
-  if (await remoteExists(connection, deploymentDir)) {
-    await removeRemote(connection, deploymentDir, true);
+  if (await remoteExists(connection, deploymentDir, { requiresSudo: true })) {
+    await removeRemote(connection, deploymentDir, true, { requiresSudo: true });
     console.log(`  Removed: ${deploymentDir}`);
     removedItems.push(`Deployment directory: ${deploymentDir}`);
   } else {
@@ -134,8 +136,8 @@ export async function removeCommand(args: string[]): Promise<void> {
 
   // 3. Remove secret overrides if they exist
   console.log("→ Removing secret overrides...");
-  if (await remoteExists(connection, overridePath)) {
-    await removeRemote(connection, overridePath);
+  if (await remoteExists(connection, overridePath, { requiresSudo: true })) {
+    await removeRemote(connection, overridePath, false, { requiresSudo: true });
     console.log(`  Removed: ${overridePath}`);
     removedItems.push(`Secret overrides: ${overridePath}`);
   } else {

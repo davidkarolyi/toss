@@ -13,6 +13,8 @@ export interface RemoteExecOptions {
   stream?: boolean;
   /** Whether to allocate a pseudo-terminal (for interactive commands) */
   tty?: boolean;
+  /** Whether the command requires sudo (non-interactive) */
+  requiresSudo?: boolean;
 }
 
 /**
@@ -27,25 +29,28 @@ export interface RemoteExecResult {
 /**
  * Builds the SSH command arguments for connecting to a server.
  */
-export function buildSshArgs(connection: ServerConnection): string[] {
-  const args: string[] = [];
+export function buildSshOptions(connection: ServerConnection): string[] {
+  const options: string[] = [];
 
   // Disable strict host key checking for non-interactive use
   // Users can override via their ~/.ssh/config
-  args.push("-o", "BatchMode=yes");
-  args.push("-o", "StrictHostKeyChecking=accept-new");
+  options.push("-o", "BatchMode=yes");
+  options.push("-o", "StrictHostKeyChecking=accept-new");
 
   // Connection timeout
-  args.push("-o", "ConnectTimeout=10");
+  options.push("-o", "ConnectTimeout=10");
 
   // Custom port if not default
   if (connection.port !== 22) {
-    args.push("-p", connection.port.toString());
+    options.push("-p", connection.port.toString());
   }
 
-  // Target
-  args.push(`${connection.user}@${connection.host}`);
+  return options;
+}
 
+export function buildSshArgs(connection: ServerConnection): string[] {
+  const args = buildSshOptions(connection);
+  args.push(`${connection.user}@${connection.host}`);
   return args;
 }
 
@@ -131,7 +136,7 @@ export async function exec(
   command: string,
   options: RemoteExecOptions = {}
 ): Promise<RemoteExecResult> {
-  const { cwd, env, stream = false, tty = false } = options;
+  const { cwd, env, stream = false, tty = false, requiresSudo = false } = options;
 
   const sshArgs = buildSshArgs(connection);
 
@@ -153,7 +158,9 @@ export async function exec(
     remoteCommand = `${envPrefix} ${remoteCommand}`;
   }
 
-  sshArgs.push(remoteCommand);
+  const shouldUseSudo = requiresSudo && connection.user !== "root";
+  const finalCommand = shouldUseSudo ? wrapWithSudo(remoteCommand) : remoteCommand;
+  sshArgs.push(finalCommand);
 
   return new Promise((resolve, reject) => {
     const childProcess = spawn("ssh", sshArgs, {
@@ -219,6 +226,20 @@ export async function execOrFail(
 }
 
 /**
+ * Executes a command with sudo (non-interactive).
+ */
+export async function execSudo(
+  connection: ServerConnection,
+  command: string,
+  options: RemoteExecOptions = {}
+): Promise<RemoteExecResult> {
+  return exec(connection, command, {
+    ...options,
+    requiresSudo: true,
+  });
+}
+
+/**
  * Opens an interactive SSH session.
  *
  * @param connection Server connection details
@@ -275,13 +296,25 @@ export function escapeShellArg(arg: string): string {
 }
 
 /**
+ * Wraps a command in a sudo non-interactive shell.
+ * This preserves built-ins like `cd` by running through sh -c.
+ */
+function wrapWithSudo(command: string): string {
+  const wrappedCommand = `sudo -n sh -c ${escapeShellArg(command)}`;
+  return wrappedCommand;
+}
+
+/**
  * Checks if a remote file or directory exists.
  */
 export async function remoteExists(
   connection: ServerConnection,
-  path: string
+  path: string,
+  options: { requiresSudo?: boolean } = {}
 ): Promise<boolean> {
-  const result = await exec(connection, `test -e ${escapeShellArg(path)}`);
+  const result = await exec(connection, `test -e ${escapeShellArg(path)}`, {
+    requiresSudo: options.requiresSudo,
+  });
   return result.exitCode === 0;
 }
 
@@ -290,9 +323,12 @@ export async function remoteExists(
  */
 export async function readRemoteFile(
   connection: ServerConnection,
-  path: string
+  path: string,
+  options: { requiresSudo?: boolean } = {}
 ): Promise<string> {
-  const result = await exec(connection, `cat ${escapeShellArg(path)}`);
+  const result = await exec(connection, `cat ${escapeShellArg(path)}`, {
+    requiresSudo: options.requiresSudo,
+  });
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to read remote file ${path}: ${result.stderr}`);
@@ -307,11 +343,14 @@ export async function readRemoteFile(
 export async function writeRemoteFile(
   connection: ServerConnection,
   path: string,
-  content: string
+  content: string,
+  options: { requiresSudo?: boolean } = {}
 ): Promise<void> {
   // Use a heredoc to write content, which handles special characters better
   const command = `cat > ${escapeShellArg(path)} << 'TOSS_EOF'\n${content}\nTOSS_EOF`;
-  const result = await exec(connection, command);
+  const result = await exec(connection, command, {
+    requiresSudo: options.requiresSudo,
+  });
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to write remote file ${path}: ${result.stderr}`);
@@ -323,9 +362,12 @@ export async function writeRemoteFile(
  */
 export async function mkdirRemote(
   connection: ServerConnection,
-  path: string
+  path: string,
+  options: { requiresSudo?: boolean } = {}
 ): Promise<void> {
-  const result = await exec(connection, `mkdir -p ${escapeShellArg(path)}`);
+  const result = await exec(connection, `mkdir -p ${escapeShellArg(path)}`, {
+    requiresSudo: options.requiresSudo,
+  });
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to create directory ${path}: ${result.stderr}`);
@@ -338,10 +380,13 @@ export async function mkdirRemote(
 export async function removeRemote(
   connection: ServerConnection,
   path: string,
-  recursive: boolean = false
+  recursive: boolean = false,
+  options: { requiresSudo?: boolean } = {}
 ): Promise<void> {
   const flags = recursive ? "-rf" : "-f";
-  const result = await exec(connection, `rm ${flags} ${escapeShellArg(path)}`);
+  const result = await exec(connection, `rm ${flags} ${escapeShellArg(path)}`, {
+    requiresSudo: options.requiresSudo,
+  });
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to remove ${path}: ${result.stderr}`);

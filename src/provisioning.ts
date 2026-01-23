@@ -1,5 +1,5 @@
 import type { ServerConnection } from "./config.ts";
-import { exec, mkdirRemote, writeRemoteFile, remoteExists } from "./ssh.ts";
+import { exec, execSudo, mkdirRemote, writeRemoteFile, remoteExists } from "./ssh.ts";
 import {
   getTossDirectory,
   getSecretsDirectory,
@@ -98,7 +98,7 @@ export async function installCaddy(
   ];
 
   const fullCommand = installCommands.join(" && ");
-  const result = await exec(connection, fullCommand, { stream: true });
+  const result = await execSudo(connection, fullCommand, { stream: true });
 
   if (result.exitCode !== 0) {
     return {
@@ -147,7 +147,7 @@ export async function createAppDirectories(
 
   for (const directory of directories) {
     try {
-      await mkdirRemote(connection, directory);
+      await mkdirRemote(connection, directory, { requiresSudo: true });
     } catch (error) {
       return {
         success: false,
@@ -177,13 +177,16 @@ export async function createEmptySecretsFiles(
 
   for (const filePath of secretsFiles) {
     try {
-      const exists = await remoteExists(connection, filePath);
+      const exists = await remoteExists(connection, filePath, {
+        requiresSudo: true,
+      });
       if (!exists) {
         // Create empty file with a comment header
         await writeRemoteFile(
           connection,
           filePath,
-          "# Secrets managed by toss\n# Push secrets with: toss secrets push <production|preview> --file .env.local\n"
+          "# Secrets managed by toss\n# Push secrets with: toss secrets push <production|preview> --file .env.local\n",
+          { requiresSudo: true }
         );
       }
     } catch (error) {
@@ -214,7 +217,9 @@ export async function initializeState(
   const statePath = getStatePath(appName);
 
   try {
-    const exists = await remoteExists(connection, statePath);
+    const exists = await remoteExists(connection, statePath, {
+      requiresSudo: true,
+    });
 
     if (exists) {
       // State already exists - don't overwrite
@@ -224,7 +229,9 @@ export async function initializeState(
     const state: TossState = createEmptyState(gitOrigin);
     const content = JSON.stringify(state, null, 2);
 
-    await writeRemoteFile(connection, statePath, content);
+    await writeRemoteFile(connection, statePath, content, {
+      requiresSudo: true,
+    });
 
     return { success: true };
   } catch (error) {
@@ -243,7 +250,7 @@ export async function isAlreadyProvisioned(
   appName: string
 ): Promise<boolean> {
   const statePath = getStatePath(appName);
-  return remoteExists(connection, statePath);
+  return remoteExists(connection, statePath, { requiresSudo: true });
 }
 
 /**

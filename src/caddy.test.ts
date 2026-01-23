@@ -24,6 +24,11 @@ describe("formatIpForSslip", () => {
   test("preserves already-dashed strings", () => {
     expect(formatIpForSslip("64-23-123-45")).toBe("64-23-123-45");
   });
+
+  test("converts IPv6 colons to dashes", () => {
+    expect(formatIpForSslip("::1")).toBe("--1");
+    expect(formatIpForSslip("2a01:4f8:c17:b8f::2")).toBe("2a01-4f8-c17-b8f--2");
+  });
 });
 
 describe("getDeploymentHostname", () => {
@@ -59,6 +64,15 @@ describe("getDeploymentHostname", () => {
     test("handles different IP addresses", () => {
       expect(getDeploymentHostname("production", "192.168.1.100")).toBe(
         "production.192-168-1-100.sslip.io"
+      );
+    });
+
+    test("handles IPv6 addresses", () => {
+      expect(getDeploymentHostname("production", "::1")).toBe(
+        "production.--1.sslip.io"
+      );
+      expect(getDeploymentHostname("preview", "2a01:4f8:c17:b8f::2")).toBe(
+        "preview.2a01-4f8-c17-b8f--2.sslip.io"
       );
     });
   });

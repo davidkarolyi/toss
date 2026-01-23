@@ -65,8 +65,10 @@ async function gatherDeploymentStatus(
     const overrideKeys: string[] = [];
     const overridePath = `${overridesDir}/${environment}.env`;
     try {
-      if (await remoteExists(connection, overridePath)) {
-        const content = await readRemoteFile(connection, overridePath);
+      if (await remoteExists(connection, overridePath, { requiresSudo: true })) {
+        const content = await readRemoteFile(connection, overridePath, {
+          requiresSudo: true,
+        });
         const overrides = parseEnvFile(content);
         overrideKeys.push(...Object.keys(overrides).sort());
       }

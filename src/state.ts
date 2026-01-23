@@ -1,5 +1,12 @@
 import type { ServerConnection } from "./config.ts";
-import { readRemoteFile, writeRemoteFile, remoteExists, mkdirRemote } from "./ssh.ts";
+import {
+  exec,
+  escapeShellArg,
+  readRemoteFile,
+  writeRemoteFile,
+  remoteExists,
+  mkdirRemote,
+} from "./ssh.ts";
 
 /**
  * Deployment lock information
@@ -40,6 +47,13 @@ export function getTossDirectory(appName: string): string {
  */
 export function getStatePath(appName: string): string {
   return `${getTossDirectory(appName)}/state.json`;
+}
+
+/**
+ * Gets the path to the state lock file.
+ */
+export function getStateLockPath(appName: string): string {
+  return `${getTossDirectory(appName)}/state.lock`;
 }
 
 /**
@@ -85,13 +99,17 @@ export async function readState(
 ): Promise<TossState> {
   const statePath = getStatePath(appName);
 
-  const exists = await remoteExists(connection, statePath);
+  const exists = await remoteExists(connection, statePath, {
+    requiresSudo: true,
+  });
   if (!exists) {
     return createEmptyState();
   }
 
   try {
-    const content = await readRemoteFile(connection, statePath);
+    const content = await readRemoteFile(connection, statePath, {
+      requiresSudo: true,
+    });
     const parsed = JSON.parse(content);
     return validateState(parsed);
   } catch (error) {
@@ -115,10 +133,90 @@ export async function writeState(
   const statePath = getStatePath(appName);
 
   // Ensure .toss directory exists
-  await mkdirRemote(connection, tossDirectory);
+  await mkdirRemote(connection, tossDirectory, { requiresSudo: true });
 
   const content = JSON.stringify(state, null, 2);
-  await writeRemoteFile(connection, statePath, content);
+  await writeRemoteFile(connection, statePath, content, { requiresSudo: true });
+}
+
+/**
+ * Reads the state.json and returns both parsed state and raw content.
+ * This is used for atomic compare-and-set updates.
+ */
+export async function readStateWithRaw(
+  connection: ServerConnection,
+  appName: string
+): Promise<{ state: TossState; rawContent: string }> {
+  const statePath = getStatePath(appName);
+  const exists = await remoteExists(connection, statePath, {
+    requiresSudo: true,
+  });
+
+  if (!exists) {
+    return { state: createEmptyState(), rawContent: "" };
+  }
+
+  const rawContent = await readRemoteFile(connection, statePath, {
+    requiresSudo: true,
+  });
+
+  try {
+    const parsed = JSON.parse(rawContent);
+    return { state: validateState(parsed), rawContent };
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`Corrupted state.json at ${statePath}: invalid JSON`);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Writes state.json only if the current file content matches expectedContent.
+ * This is guarded by flock to avoid races in lock acquisition.
+ *
+ * @returns true if the file was updated, false if the content changed.
+ */
+export async function writeStateIfUnchanged(
+  connection: ServerConnection,
+  appName: string,
+  expectedContent: string,
+  state: TossState
+): Promise<boolean> {
+  const tossDirectory = getTossDirectory(appName);
+  const statePath = getStatePath(appName);
+  const lockPath = getStateLockPath(appName);
+  const newContent = JSON.stringify(state, null, 2);
+
+  await mkdirRemote(connection, tossDirectory, { requiresSudo: true });
+
+  const script = [
+    "set -e",
+    `state_path=${escapeShellArg(statePath)}`,
+    "current_content=\"\"",
+    "if [ -f \"$state_path\" ]; then",
+    "  current_content=$(cat \"$state_path\")",
+    "fi",
+    `expected_content=$(printf %s ${escapeShellArg(expectedContent)})`,
+    "if [ \"$current_content\" != \"$expected_content\" ]; then",
+    "  exit 2",
+    "fi",
+    `printf %s ${escapeShellArg(newContent)} > \"$state_path\"`,
+  ].join("\n");
+
+  const command = `flock -n ${escapeShellArg(lockPath)} sh -c ${escapeShellArg(script)}`;
+  const result = await exec(connection, command, { requiresSudo: true });
+
+  if (result.exitCode === 0) {
+    return true;
+  }
+
+  if (result.exitCode === 1 || result.exitCode === 2) {
+    return false;
+  }
+
+  const errorMessage = result.stderr.trim() || result.stdout.trim() || "Unknown error";
+  throw new Error(`Failed to update state.json atomically: ${errorMessage}`);
 }
 
 /**

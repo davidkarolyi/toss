@@ -173,12 +173,14 @@ async function updateSecretOverrides(
   const overridePath = `${overridesDir}/${environment}.env`;
 
   // Ensure overrides directory exists
-  await mkdirRemote(connection, overridesDir);
+  await mkdirRemote(connection, overridesDir, { requiresSudo: true });
 
   // Read existing overrides
   let existingOverrides: Record<string, string> = {};
-  if (await remoteExists(connection, overridePath)) {
-    const content = await readRemoteFile(connection, overridePath);
+  if (await remoteExists(connection, overridePath, { requiresSudo: true })) {
+    const content = await readRemoteFile(connection, overridePath, {
+      requiresSudo: true,
+    });
     existingOverrides = parseEnvFile(content);
   }
 
@@ -194,7 +196,9 @@ async function updateSecretOverrides(
 
   // Write back
   const content = formatEnvFile(existingOverrides);
-  await writeRemoteFile(connection, overridePath, content);
+  await writeRemoteFile(connection, overridePath, content, {
+    requiresSudo: true,
+  });
 }
 
 /**
@@ -205,7 +209,7 @@ async function mergeAndWriteSecrets(
   appName: string,
   environment: string,
   deploymentDir: string
-): Promise<boolean> {
+): Promise<{ hasSecrets: boolean; mergedSecrets: Record<string, string> }> {
   const secretsDir = getSecretsDirectory(appName);
   const overridesDir = getSecretsOverridesDirectory(appName);
 
@@ -220,8 +224,10 @@ async function mergeAndWriteSecrets(
   // Read base secrets
   let baseSecrets: Record<string, string> = {};
   let hasBaseSecrets = false;
-  if (await remoteExists(connection, baseSecretsFile)) {
-    const content = await readRemoteFile(connection, baseSecretsFile);
+  if (await remoteExists(connection, baseSecretsFile, { requiresSudo: true })) {
+    const content = await readRemoteFile(connection, baseSecretsFile, {
+      requiresSudo: true,
+    });
     baseSecrets = parseEnvFile(content);
     // Check if there are actual secrets (not just comments)
     hasBaseSecrets = Object.keys(baseSecrets).length > 0;
@@ -229,8 +235,10 @@ async function mergeAndWriteSecrets(
 
   // Read overrides
   let overrideSecrets: Record<string, string> = {};
-  if (await remoteExists(connection, overrideFile)) {
-    const content = await readRemoteFile(connection, overrideFile);
+  if (await remoteExists(connection, overrideFile, { requiresSudo: true })) {
+    const content = await readRemoteFile(connection, overrideFile, {
+      requiresSudo: true,
+    });
     overrideSecrets = parseEnvFile(content);
   }
 
@@ -240,10 +248,13 @@ async function mergeAndWriteSecrets(
   // Write to deployment directory
   const envFilePath = `${deploymentDir}/.env`;
   const content = formatEnvFile(merged);
-  await writeRemoteFile(connection, envFilePath, content);
+  await writeRemoteFile(connection, envFilePath, content, {
+    requiresSudo: true,
+  });
 
   // Return whether we had actual secrets
-  return hasBaseSecrets || Object.keys(overrideSecrets).length > 0;
+  const hasSecrets = hasBaseSecrets || Object.keys(overrideSecrets).length > 0;
+  return { hasSecrets, mergedSecrets: merged };
 }
 
 /**
@@ -393,6 +404,7 @@ export async function deployCommand(args: string[]): Promise<void> {
       console.log("→ Syncing files...");
       await syncToRemoteOrFail(repoRoot, connection, deploymentDir, {
         stream: false,
+        requiresSudo: true,
       });
 
       // 4. Apply dependencies
@@ -416,14 +428,14 @@ export async function deployCommand(args: string[]): Promise<void> {
 
       // 5. Merge and write secrets
       console.log("→ Loading secrets...");
-      const hasSecrets = await mergeAndWriteSecrets(
+      const secretsResult = await mergeAndWriteSecrets(
         connection,
         config.app,
         environment,
         deploymentDir
       );
 
-      if (!hasSecrets) {
+      if (!secretsResult.hasSecrets) {
         console.log(
           "  ⚠ No secrets found. Your app will start with an empty .env file."
         );
@@ -453,12 +465,16 @@ export async function deployCommand(args: string[]): Promise<void> {
         TOSS_RELEASE_DIR: deploymentDir,
         TOSS_PROD_DIR: getDeploymentDirectory(config.app, "production"),
       };
+      const deployEnvironmentVariables: Record<string, string> = {
+        ...secretsResult.mergedSecrets,
+        ...tossEnvVars,
+      };
 
       await runDeployScript(
         connection,
         deploymentDir,
         config.deployScript,
-        tossEnvVars
+        deployEnvironmentVariables
       );
 
       // 8. Create/update systemd service

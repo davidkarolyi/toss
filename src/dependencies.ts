@@ -129,7 +129,10 @@ async function applyDependency(
   name: string,
   command: string
 ): Promise<DependencyResult> {
-  const execResult = await exec(connection, command, { stream: true });
+  const execResult = await exec(connection, command, {
+    stream: true,
+    requiresSudo: true,
+  });
 
   if (execResult.exitCode !== 0) {
     return {

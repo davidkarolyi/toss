@@ -1,7 +1,7 @@
 import os from "node:os";
 import type { ServerConnection } from "./config.ts";
 import type { TossState, DeploymentLock } from "./state.ts";
-import { readState, writeState } from "./state.ts";
+import { readState, readStateWithRaw, writeState, writeStateIfUnchanged } from "./state.ts";
 
 /**
  * Lock timeout in milliseconds.
@@ -136,55 +136,102 @@ export async function acquireLock(
   appName: string,
   environment: string
 ): Promise<AcquireLockResult> {
-  const state = await readState(connection, appName);
+  const maxAttempts = 5;
 
-  // No existing lock - acquire it
-  if (!state.lock) {
-    const newLock = createLock(environment);
-    state.lock = newLock;
-    await writeState(connection, appName, state);
-    return { acquired: true, lock: newLock };
-  }
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const { state, rawContent } = await readStateWithRaw(connection, appName);
 
-  const existingLock = state.lock;
+    // No existing lock - acquire it
+    if (!state.lock) {
+      const newLock = createLock(environment);
+      state.lock = newLock;
+      const updated = await writeStateIfUnchanged(
+        connection,
+        appName,
+        rawContent,
+        state
+      );
 
-  // Already own this lock (re-entrant)
-  if (isOwnLock(existingLock)) {
-    return { acquired: true, lock: existingLock };
-  }
+      if (updated) {
+        return { acquired: true, lock: newLock };
+      }
 
-  // Lock is stale - break it
-  if (isLockStale(existingLock)) {
-    const newLock = createLock(environment);
-    state.lock = newLock;
-    await writeState(connection, appName, state);
+      continue;
+    }
+
+    const existingLock = state.lock;
+
+    // Already own this lock (re-entrant)
+    if (isOwnLock(existingLock)) {
+      return { acquired: true, lock: existingLock };
+    }
+
+    // Lock is stale - break it
+    if (isLockStale(existingLock)) {
+      const newLock = createLock(environment);
+      state.lock = newLock;
+      const updated = await writeStateIfUnchanged(
+        connection,
+        appName,
+        rawContent,
+        state
+      );
+
+      if (updated) {
+        return {
+          acquired: true,
+          lock: newLock,
+          existingLock,
+          reason: "Previous lock was stale (older than 30 minutes)",
+        };
+      }
+
+      continue;
+    }
+
+    // Lock is from a dead process on this host - break it
+    if (isDeadProcessLock(existingLock)) {
+      const newLock = createLock(environment);
+      state.lock = newLock;
+      const updated = await writeStateIfUnchanged(
+        connection,
+        appName,
+        rawContent,
+        state
+      );
+
+      if (updated) {
+        return {
+          acquired: true,
+          lock: newLock,
+          existingLock,
+          reason: "Previous lock holder process is no longer running",
+        };
+      }
+
+      continue;
+    }
+
+    // Lock is active and valid - cannot acquire
     return {
-      acquired: true,
-      lock: newLock,
+      acquired: false,
       existingLock,
-      reason: "Previous lock was stale (older than 30 minutes)",
+      reason: "Another deploy is in progress",
     };
   }
 
-  // Lock is from a dead process on this host - break it
-  if (isDeadProcessLock(existingLock)) {
-    const newLock = createLock(environment);
-    state.lock = newLock;
-    await writeState(connection, appName, state);
+  const latestState = await readState(connection, appName);
+  if (latestState.lock) {
     return {
-      acquired: true,
-      lock: newLock,
-      existingLock,
-      reason: "Previous lock holder process is no longer running",
+      acquired: false,
+      existingLock: latestState.lock,
+      reason: "Another deploy is in progress",
     };
   }
 
-  // Lock is active and valid - cannot acquire
-  return {
-    acquired: false,
-    existingLock,
-    reason: "Another deploy is in progress",
-  };
+  throw new Error(
+    "Failed to acquire deploy lock due to concurrent updates. Please retry."
+  );
 }
 
 /**

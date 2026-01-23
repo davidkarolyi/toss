@@ -107,11 +107,13 @@ async function pushSecrets(args: string[]): Promise<void> {
   const secretsDir = `/srv/${config.app}/.toss/secrets`;
 
   // Ensure the secrets directory exists
-  await mkdirRemote(connection, secretsDir);
+  await mkdirRemote(connection, secretsDir, { requiresSudo: true });
 
   // Write the file to the server
   console.log(`→ Uploading secrets to ${environment}...`);
-  await writeRemoteFile(connection, remotePath, content);
+  await writeRemoteFile(connection, remotePath, content, {
+    requiresSudo: true,
+  });
 
   console.log(`✓ Secrets pushed to ${remotePath}`);
 }
@@ -130,7 +132,9 @@ async function pullSecrets(args: string[]): Promise<void> {
   const remotePath = `/srv/${config.app}/.toss/secrets/${environment}.env`;
 
   // Check if remote file exists
-  const exists = await remoteExists(connection, remotePath);
+  const exists = await remoteExists(connection, remotePath, {
+    requiresSudo: true,
+  });
   if (!exists) {
     throw new Error(
       `No secrets file found for "${environment}".\n\n` +
@@ -141,7 +145,9 @@ async function pullSecrets(args: string[]): Promise<void> {
 
   // Read the remote file
   console.log(`→ Downloading ${environment} secrets...`);
-  const content = await readRemoteFile(connection, remotePath);
+  const content = await readRemoteFile(connection, remotePath, {
+    requiresSudo: true,
+  });
 
   // Write to local file
   await Bun.write(filePath, content);

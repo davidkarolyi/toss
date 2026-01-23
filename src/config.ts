@@ -218,24 +218,61 @@ export function parseServerString(server: string): ServerConnection {
     );
   }
 
-  // Check for port
-  const colonIndex = hostPart.lastIndexOf(":");
   let host: string;
   let port = 22;
 
-  if (colonIndex !== -1) {
-    host = hostPart.slice(0, colonIndex);
-    const portString = hostPart.slice(colonIndex + 1);
-    const parsedPort = parseInt(portString, 10);
-
-    if (isNaN(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+  if (hostPart.startsWith("[")) {
+    const closingBracketIndex = hostPart.indexOf("]");
+    if (closingBracketIndex === -1) {
       throw new Error(
-        `Invalid port "${portString}" in server string. Port must be a number between 1 and 65535.`
+        `Invalid server format: "${server}". IPv6 addresses must be wrapped in brackets.`
       );
     }
-    port = parsedPort;
+
+    host = hostPart.slice(1, closingBracketIndex);
+    const remainder = hostPart.slice(closingBracketIndex + 1);
+
+    if (remainder) {
+      if (!remainder.startsWith(":")) {
+        throw new Error(
+          `Invalid server format: "${server}". Expected format: user@[ipv6] or user@[ipv6]:port`
+        );
+      }
+
+      const portString = remainder.slice(1);
+      const parsedPort = parseInt(portString, 10);
+
+      if (isNaN(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+        throw new Error(
+          `Invalid port "${portString}" in server string. Port must be a number between 1 and 65535.`
+        );
+      }
+      port = parsedPort;
+    }
   } else {
-    host = hostPart;
+    const colonCount = hostPart.split(":").length - 1;
+    if (colonCount > 1) {
+      throw new Error(
+        `Invalid server format: "${server}". IPv6 addresses must use brackets, e.g. user@[::1] or user@[::1]:2222.`
+      );
+    }
+
+    // Check for port in user@host:port format
+    const colonIndex = hostPart.lastIndexOf(":");
+    if (colonIndex !== -1) {
+      host = hostPart.slice(0, colonIndex);
+      const portString = hostPart.slice(colonIndex + 1);
+      const parsedPort = parseInt(portString, 10);
+
+      if (isNaN(parsedPort) || parsedPort < 1 || parsedPort > 65535) {
+        throw new Error(
+          `Invalid port "${portString}" in server string. Port must be a number between 1 and 65535.`
+        );
+      }
+      port = parsedPort;
+    } else {
+      host = hostPart;
+    }
   }
 
   if (!host) {

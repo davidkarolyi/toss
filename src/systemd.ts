@@ -1,5 +1,11 @@
 import type { ServerConnection } from "./config.ts";
-import { exec, writeRemoteFile, removeRemote, escapeShellArg, remoteExists } from "./ssh.ts";
+import {
+  execSudo,
+  writeRemoteFile,
+  removeRemote,
+  escapeShellArg,
+  remoteExists,
+} from "./ssh.ts";
 
 /**
  * Configuration for generating a systemd service unit file
@@ -74,7 +80,9 @@ export async function createOrUpdateService(
   const unitFilePath = getUnitFilePath(config.appName, config.environment);
   const unitContent = generateUnitFile(config);
 
-  await writeRemoteFile(connection, unitFilePath, unitContent);
+  await writeRemoteFile(connection, unitFilePath, unitContent, {
+    requiresSudo: true,
+  });
 
   // Reload systemd daemon to pick up the new/updated unit file
   await reloadDaemon(connection);
@@ -84,7 +92,7 @@ export async function createOrUpdateService(
  * Reloads the systemd daemon to pick up configuration changes.
  */
 export async function reloadDaemon(connection: ServerConnection): Promise<void> {
-  const result = await exec(connection, "systemctl daemon-reload");
+  const result = await execSudo(connection, "systemctl daemon-reload");
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to reload systemd daemon: ${result.stderr}`);
@@ -100,7 +108,10 @@ export async function startService(
   environment: string
 ): Promise<void> {
   const serviceName = getServiceName(appName, environment);
-  const result = await exec(connection, `systemctl start ${escapeShellArg(serviceName)}`);
+  const result = await execSudo(
+    connection,
+    `systemctl start ${escapeShellArg(serviceName)}`
+  );
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to start service ${serviceName}: ${result.stderr}`);
@@ -116,7 +127,10 @@ export async function stopService(
   environment: string
 ): Promise<void> {
   const serviceName = getServiceName(appName, environment);
-  const result = await exec(connection, `systemctl stop ${escapeShellArg(serviceName)}`);
+  const result = await execSudo(
+    connection,
+    `systemctl stop ${escapeShellArg(serviceName)}`
+  );
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to stop service ${serviceName}: ${result.stderr}`);
@@ -132,7 +146,10 @@ export async function restartService(
   environment: string
 ): Promise<void> {
   const serviceName = getServiceName(appName, environment);
-  const result = await exec(connection, `systemctl restart ${escapeShellArg(serviceName)}`);
+  const result = await execSudo(
+    connection,
+    `systemctl restart ${escapeShellArg(serviceName)}`
+  );
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to restart service ${serviceName}: ${result.stderr}`);
@@ -148,7 +165,10 @@ export async function enableService(
   environment: string
 ): Promise<void> {
   const serviceName = getServiceName(appName, environment);
-  const result = await exec(connection, `systemctl enable ${escapeShellArg(serviceName)}`);
+  const result = await execSudo(
+    connection,
+    `systemctl enable ${escapeShellArg(serviceName)}`
+  );
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to enable service ${serviceName}: ${result.stderr}`);
@@ -164,7 +184,10 @@ export async function disableService(
   environment: string
 ): Promise<void> {
   const serviceName = getServiceName(appName, environment);
-  const result = await exec(connection, `systemctl disable ${escapeShellArg(serviceName)}`);
+  const result = await execSudo(
+    connection,
+    `systemctl disable ${escapeShellArg(serviceName)}`
+  );
 
   if (result.exitCode !== 0) {
     throw new Error(`Failed to disable service ${serviceName}: ${result.stderr}`);
@@ -182,17 +205,23 @@ export async function getServiceStatus(
   const serviceName = getServiceName(appName, environment);
 
   // Check if the service is active/running
-  const isActiveResult = await exec(connection, `systemctl is-active ${escapeShellArg(serviceName)}`);
+  const isActiveResult = await execSudo(
+    connection,
+    `systemctl is-active ${escapeShellArg(serviceName)}`
+  );
   const activeState = isActiveResult.stdout.trim();
   const active = isActiveResult.exitCode === 0;
   const running = activeState === "active";
 
   // Check if enabled
-  const isEnabledResult = await exec(connection, `systemctl is-enabled ${escapeShellArg(serviceName)}`);
+  const isEnabledResult = await execSudo(
+    connection,
+    `systemctl is-enabled ${escapeShellArg(serviceName)}`
+  );
   const enabled = isEnabledResult.exitCode === 0;
 
   // Get detailed status for additional info
-  const statusResult = await exec(
+  const statusResult = await execSudo(
     connection,
     `systemctl show ${escapeShellArg(serviceName)} --property=MainPID,MemoryCurrent,ActiveEnterTimestamp --no-pager`
   );
@@ -261,13 +290,13 @@ export async function removeService(
   }
 
   // Stop the service (ignore errors if not running)
-  await exec(connection, `systemctl stop ${escapeShellArg(serviceName)}`);
+  await execSudo(connection, `systemctl stop ${escapeShellArg(serviceName)}`);
 
   // Disable the service (ignore errors if not enabled)
-  await exec(connection, `systemctl disable ${escapeShellArg(serviceName)}`);
+  await execSudo(connection, `systemctl disable ${escapeShellArg(serviceName)}`);
 
   // Remove the unit file
-  await removeRemote(connection, unitFilePath);
+  await removeRemote(connection, unitFilePath, false, { requiresSudo: true });
 
   // Reload daemon
   await reloadDaemon(connection);

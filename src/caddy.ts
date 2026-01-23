@@ -1,9 +1,9 @@
 import type { ServerConnection } from "./config.ts";
 import type { TossState } from "./state.ts";
-import { exec, writeRemoteFile } from "./ssh.ts";
-import { escapeShellArg } from "./ssh.ts";
+import { exec, execSudo, writeRemoteFile, removeRemote, escapeShellArg } from "./ssh.ts";
 
 const CADDYFILE_PATH = "/etc/caddy/Caddyfile";
+const CADDYFILE_TEMP_PATH = "/etc/caddy/Caddyfile.toss.tmp";
 
 /**
  * Configuration for generating Caddy config
@@ -27,6 +27,9 @@ export interface CaddyOperationResult {
  * Replaces dots with dashes: 64.23.123.45 → 64-23-123-45
  */
 export function formatIpForSslip(ip: string): string {
+  if (ip.includes(":")) {
+    return ip.toLowerCase().replace(/:/g, "-");
+  }
   return ip.replace(/\./g, "-");
 }
 
@@ -127,7 +130,7 @@ export async function isCaddyInstalled(connection: ServerConnection): Promise<bo
  * Checks if the Caddy service is running.
  */
 export async function isCaddyRunning(connection: ServerConnection): Promise<boolean> {
-  const result = await exec(connection, "systemctl is-active caddy");
+  const result = await execSudo(connection, "systemctl is-active caddy");
   return result.exitCode === 0 && result.stdout.trim() === "active";
 }
 
@@ -135,7 +138,7 @@ export async function isCaddyRunning(connection: ServerConnection): Promise<bool
  * Starts the Caddy service.
  */
 export async function startCaddy(connection: ServerConnection): Promise<CaddyOperationResult> {
-  const result = await exec(connection, "systemctl start caddy");
+  const result = await execSudo(connection, "systemctl start caddy");
 
   if (result.exitCode !== 0) {
     return {
@@ -151,7 +154,7 @@ export async function startCaddy(connection: ServerConnection): Promise<CaddyOpe
  * Enables the Caddy service to start on boot.
  */
 export async function enableCaddy(connection: ServerConnection): Promise<CaddyOperationResult> {
-  const result = await exec(connection, "systemctl enable caddy");
+  const result = await execSudo(connection, "systemctl enable caddy");
 
   if (result.exitCode !== 0) {
     return {
@@ -171,7 +174,7 @@ export async function enableCaddy(connection: ServerConnection): Promise<CaddyOp
  */
 export async function reloadCaddy(connection: ServerConnection): Promise<CaddyOperationResult> {
   // Try the preferred reload method first
-  const reloadResult = await exec(
+  const reloadResult = await execSudo(
     connection,
     `caddy reload --config ${escapeShellArg(CADDYFILE_PATH)}`
   );
@@ -181,7 +184,7 @@ export async function reloadCaddy(connection: ServerConnection): Promise<CaddyOp
   }
 
   // Fall back to systemctl reload
-  const systemctlResult = await exec(connection, "systemctl reload caddy");
+  const systemctlResult = await execSudo(connection, "systemctl reload caddy");
 
   if (systemctlResult.exitCode !== 0) {
     return {
@@ -196,10 +199,13 @@ export async function reloadCaddy(connection: ServerConnection): Promise<CaddyOp
 /**
  * Validates Caddy configuration syntax without applying it.
  */
-export async function validateCaddyConfig(connection: ServerConnection): Promise<CaddyOperationResult> {
-  const result = await exec(
+export async function validateCaddyConfig(
+  connection: ServerConnection,
+  configPath: string = CADDYFILE_PATH
+): Promise<CaddyOperationResult> {
+  const result = await execSudo(
     connection,
-    `caddy validate --config ${escapeShellArg(CADDYFILE_PATH)}`
+    `caddy validate --config ${escapeShellArg(configPath)}`
   );
 
   if (result.exitCode !== 0) {
@@ -215,8 +221,10 @@ export async function validateCaddyConfig(connection: ServerConnection): Promise
 /**
  * Writes the Caddyfile to the server.
  */
-async function writeCaddyfile(connection: ServerConnection, content: string): Promise<void> {
-  await writeRemoteFile(connection, CADDYFILE_PATH, content);
+async function writeCaddyfileTemp(connection: ServerConnection, content: string): Promise<void> {
+  await writeRemoteFile(connection, CADDYFILE_TEMP_PATH, content, {
+    requiresSudo: true,
+  });
 }
 
 /**
@@ -274,14 +282,33 @@ export async function updateCaddyConfig(
     };
   }
 
-  // Generate and write the new config
+  // Generate and write the new config to a temp file
   const caddyfileContent = generateCaddyfile(state, config);
-  await writeCaddyfile(connection, caddyfileContent);
+  await writeCaddyfileTemp(connection, caddyfileContent);
 
-  // Validate before reloading
-  const validationResult = await validateCaddyConfig(connection);
+  // Validate temp config before promoting
+  const validationResult = await validateCaddyConfig(connection, CADDYFILE_TEMP_PATH);
   if (!validationResult.success) {
+    try {
+      await removeRemote(connection, CADDYFILE_TEMP_PATH, false, {
+        requiresSudo: true,
+      });
+    } catch {
+      // Best effort cleanup
+    }
     return validationResult;
+  }
+
+  // Promote temp config atomically
+  const moveResult = await execSudo(
+    connection,
+    `mv ${escapeShellArg(CADDYFILE_TEMP_PATH)} ${escapeShellArg(CADDYFILE_PATH)}`
+  );
+  if (moveResult.exitCode !== 0) {
+    return {
+      success: false,
+      error: `Failed to update Caddyfile: ${moveResult.stderr.trim() || moveResult.stdout.trim()}`,
+    };
   }
 
   // Ensure Caddy is running

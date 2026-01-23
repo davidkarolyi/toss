@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import type { ServerConnection } from "./config.ts";
+import { buildSshOptions } from "./ssh.ts";
 
 /**
  * Options for rsync operations
@@ -13,6 +14,8 @@ export interface RsyncOptions {
   delete?: boolean;
   /** Dry run mode - show what would be transferred without actually doing it */
   dryRun?: boolean;
+  /** Whether rsync requires sudo on the remote server */
+  requiresSudo?: boolean;
 }
 
 /**
@@ -56,7 +59,13 @@ export async function syncToRemote(
   remotePath: string,
   options: RsyncOptions = {}
 ): Promise<RsyncResult> {
-  const { stream = true, extraExcludes = [], delete: deleteFiles = false, dryRun = false } = options;
+  const {
+    stream = true,
+    extraExcludes = [],
+    delete: deleteFiles = false,
+    dryRun = false,
+    requiresSudo = false,
+  } = options;
 
   const rsyncArgs = buildRsyncArgs(
     localPath,
@@ -64,7 +73,8 @@ export async function syncToRemote(
     remotePath,
     extraExcludes,
     deleteFiles,
-    dryRun
+    dryRun,
+    requiresSudo
   );
 
   return executeRsync(rsyncArgs, stream);
@@ -79,7 +89,8 @@ function buildRsyncArgs(
   remotePath: string,
   extraExcludes: string[],
   deleteFiles: boolean,
-  dryRun: boolean
+  dryRun: boolean,
+  requiresSudo: boolean
 ): string[] {
   const args: string[] = [];
 
@@ -99,9 +110,13 @@ function buildRsyncArgs(
     args.push("--dry-run");
   }
 
-  // SSH options for custom port
-  if (connection.port !== 22) {
-    args.push("-e", `ssh -p ${connection.port}`);
+  // SSH options aligned with the main SSH module
+  const sshOptions = buildSshOptions(connection).join(" ");
+  args.push("-e", `ssh ${sshOptions}`);
+
+  // Run rsync as sudo on the remote host when needed
+  if (requiresSudo && connection.user !== "root") {
+    args.push("--rsync-path", "sudo -n rsync");
   }
 
   // Apply gitignore rules from the source directory
