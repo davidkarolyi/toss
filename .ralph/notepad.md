@@ -2,7 +2,7 @@
 
 ## Where We Are
 
-CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, origin verification, dependency tracking, and now **deployment locking** modules. All commands are placeholder stubs.
+CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, origin verification, dependency tracking, deployment locking, and now the **`init` command**.
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -13,47 +13,32 @@ CLI foundation is complete with config loading, SSH, rsync, systemd, state manag
 - `src/caddy.ts` - Caddyfile generation and Caddy management
 - `src/provisioning.ts` - server setup for `toss init`
 - `src/dependencies.ts` - server dependency tracking
-- `src/lock.ts` - deployment locking (NEW)
+- `src/lock.ts` - deployment locking
+- `src/commands/init.ts` - interactive setup wizard (NEW)
 
-## Deployment Locking (`src/lock.ts`)
+## `toss init` Command
 
-Prevents concurrent deploys to the same server by acquiring a lock in `.toss/state.json`.
+Interactive wizard that sets up both local config and VPS. Implemented in `src/commands/init.ts`.
 
-**Key functions:**
+**Flow:**
+1. Check for existing `toss.json`, ask to overwrite if found
+2. Prompt for server address (validates format, tests SSH connection, verifies elevated access)
+3. Prompt for app name (validates format, checks for conflicts on server)
+4. Prompt for optional domain (validates format)
+5. Prompt for start command (for systemd)
+6. Prompt for deploy commands (parses `&&` separated input into array)
+7. Ask about GitHub Actions workflow generation
+8. Run server provisioning (Caddy, directories, state.json, empty secrets files)
+9. Write `toss.json`
+10. Write `.github/workflows/toss.yml` if requested
+11. Print final instructions (DNS if domain set, GitHub secrets if workflow set, secrets push, deploy)
 
-- `createLock(environment)` - Creates lock object with hostname, PID, timestamp
-- `isLockStale(lock)` - Returns true if lock is older than 30 minutes
-- `isOwnLock(lock)` - Returns true if current process owns the lock
-- `isDeadProcessLock(lock)` - Detects dead process locks on same host
-- `acquireLock(connection, appName, environment)` - Attempt to acquire lock
-- `releaseLock(connection, appName)` - Release lock if owned by current process
-- `withLock(connection, appName, environment, fn, options)` - Execute function with lock
-- `LockError` - Custom error class for lock failures
-
-**Usage during deploy:**
-```typescript
-await withLock(connection, appName, environment, async () => {
-  // Deploy logic here - lock is held for entire duration
-  await syncFiles();
-  await runDeployScript();
-  await restartService();
-}, {
-  onLockAcquired: (result) => {
-    if (result.existingLock) {
-      console.log(`→ Breaking stale lock: ${result.reason}`);
-    }
-    console.log(`→ Lock acquired`);
-  },
-  onLockReleased: () => console.log(`→ Lock released`)
-});
-```
-
-**Lock acquisition rules:**
-1. If no lock exists → acquire
-2. If lock owned by this process → allow (re-entrant)
-3. If lock is stale (>30 min) → break and acquire
-4. If lock from dead process on same host → break and acquire
-5. Otherwise → fail with `LockError`
+**GitHub Actions workflow** (generated in init):
+- Deploys `production` on push to main
+- Deploys `pr-<number>` on pull requests
+- Comments preview URL on PRs
+- Removes preview environments when PRs close
+- Uses sslip.io URLs if no domain configured
 
 ## Structure
 
@@ -68,9 +53,11 @@ src/
 ├── caddy.ts                 # Reverse proxy
 ├── provisioning.ts          # Server setup
 ├── dependencies.ts          # Server dependencies
-├── lock.ts                  # Deployment locking (NEW)
+├── lock.ts                  # Deployment locking
 ├── *.test.ts                # Tests for each module
-└── commands/                # Command handlers (stubs)
+└── commands/
+    └── init.ts              # Interactive setup wizard (IMPLEMENTED)
+    └── (other stubs)
 ```
 
 ## Scripts
@@ -83,5 +70,5 @@ src/
 ## What's Next
 
 1. **Port assignment** - deterministic port allocation from 3000+
-2. **`toss init` command** - interactive wizard using all the modules
-3. **`toss deploy` command** - the core deploy flow
+2. **`toss secrets push/pull`** - secrets management commands
+3. **`toss deploy`** - the core deploy flow
