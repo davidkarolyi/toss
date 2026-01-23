@@ -8,6 +8,7 @@ import {
   createEmptyState,
   getDeployedEnvironments,
   getPortForEnvironment,
+  verifyOrigin,
 } from "./state.ts";
 import type { TossState } from "./state.ts";
 
@@ -156,5 +157,128 @@ describe("TossState structure", () => {
     expect(state.deployments).toEqual({});
     expect(state.appliedDependencies).toEqual([]);
     expect(state.lock).toBeNull();
+  });
+});
+
+describe("verifyOrigin", () => {
+  describe("allows deploy when", () => {
+    test("stored origin is null (first deploy)", () => {
+      const result = verifyOrigin(null, "git@github.com:user/repo.git");
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    test("local origin is null (not a git repo)", () => {
+      const result = verifyOrigin("git@github.com:user/repo.git", null);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    test("both origins are null", () => {
+      const result = verifyOrigin(null, null);
+      expect(result.valid).toBe(true);
+      expect(result.error).toBeUndefined();
+    });
+
+    test("origins match exactly (SSH)", () => {
+      const origin = "git@github.com:user/repo.git";
+      const result = verifyOrigin(origin, origin);
+      expect(result.valid).toBe(true);
+    });
+
+    test("origins match exactly (HTTPS)", () => {
+      const origin = "https://github.com/user/repo.git";
+      const result = verifyOrigin(origin, origin);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe("normalizes origins correctly", () => {
+    test("SSH and HTTPS for same repo are equivalent", () => {
+      const sshOrigin = "git@github.com:user/repo.git";
+      const httpsOrigin = "https://github.com/user/repo.git";
+      const result = verifyOrigin(sshOrigin, httpsOrigin);
+      expect(result.valid).toBe(true);
+    });
+
+    test("with and without .git suffix are equivalent", () => {
+      const withGit = "git@github.com:user/repo.git";
+      const withoutGit = "git@github.com:user/repo";
+      const result = verifyOrigin(withGit, withoutGit);
+      expect(result.valid).toBe(true);
+    });
+
+    test("trailing slashes are ignored", () => {
+      const withSlash = "https://github.com/user/repo/";
+      const withoutSlash = "https://github.com/user/repo";
+      const result = verifyOrigin(withSlash, withoutSlash);
+      expect(result.valid).toBe(true);
+    });
+
+    test("case differences are ignored", () => {
+      const uppercase = "git@GitHub.com:User/Repo.git";
+      const lowercase = "git@github.com:user/repo.git";
+      const result = verifyOrigin(uppercase, lowercase);
+      expect(result.valid).toBe(true);
+    });
+
+    test("http and https are equivalent", () => {
+      const http = "http://github.com/user/repo.git";
+      const https = "https://github.com/user/repo.git";
+      const result = verifyOrigin(http, https);
+      expect(result.valid).toBe(true);
+    });
+  });
+
+  describe("blocks deploy when", () => {
+    test("origins are different repos", () => {
+      const storedOrigin = "git@github.com:user/repo-a.git";
+      const localOrigin = "git@github.com:user/repo-b.git";
+      const result = verifyOrigin(storedOrigin, localOrigin);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toBeDefined();
+      expect(result.storedOrigin).toBe(storedOrigin);
+      expect(result.localOrigin).toBe(localOrigin);
+    });
+
+    test("origins are from different users", () => {
+      const storedOrigin = "git@github.com:user-a/repo.git";
+      const localOrigin = "git@github.com:user-b/repo.git";
+      const result = verifyOrigin(storedOrigin, localOrigin);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("Project origin mismatch");
+    });
+
+    test("origins are from different hosts", () => {
+      const storedOrigin = "git@github.com:user/repo.git";
+      const localOrigin = "git@gitlab.com:user/repo.git";
+      const result = verifyOrigin(storedOrigin, localOrigin);
+
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("Project origin mismatch");
+    });
+  });
+
+  describe("error message", () => {
+    test("includes both origins for debugging", () => {
+      const storedOrigin = "git@github.com:company/project-a.git";
+      const localOrigin = "git@github.com:company/project-b.git";
+      const result = verifyOrigin(storedOrigin, localOrigin);
+
+      expect(result.error).toContain(storedOrigin);
+      expect(result.error).toContain(localOrigin);
+    });
+
+    test("includes helpful suggestions", () => {
+      const result = verifyOrigin(
+        "git@github.com:user/repo-a.git",
+        "git@github.com:user/repo-b.git"
+      );
+
+      expect(result.error).toContain("Use a different app name");
+      expect(result.error).toContain("toss remove");
+    });
   });
 });

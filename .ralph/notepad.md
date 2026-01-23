@@ -2,44 +2,45 @@
 
 ## Where We Are
 
-CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, and **server provisioning** modules. All commands are placeholder stubs.
+CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, and **origin verification** modules. All commands are placeholder stubs.
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
 - `src/ssh.ts` - remote command execution, file operations
 - `src/rsync.ts` - file sync with gitignore support
 - `src/systemd.ts` - service management (toss-<app>-<env> naming)
-- `src/state.ts` - reading/writing `.toss/state.json` on server
+- `src/state.ts` - reading/writing `.toss/state.json`, **origin verification**
 - `src/caddy.ts` - Caddyfile generation and Caddy management
-- `src/provisioning.ts` - server setup for `toss init` (NEW)
+- `src/provisioning.ts` - server setup for `toss init`
 
-## Provisioning Module (`src/provisioning.ts`)
+## Origin Verification (`src/state.ts`)
 
-Handles server setup during `toss init`. All operations are idempotent.
+Prevents accidental overwrites when two different repos use the same app name.
 
-**Path helpers:**
-- `getAppDirectory(appName)` → `/srv/<app>`
-- `getProductionSecretsPath(appName)` → `/srv/<app>/.toss/secrets/production.env`
-- `getPreviewSecretsPath(appName)` → `/srv/<app>/.toss/secrets/preview.env`
+**Key function: `verifyOrigin(storedOrigin, localOrigin)`**
 
-**Key functions:**
-- `detectGitOrigin()` - gets git remote origin from local repo
-- `installCaddy()` - installs Caddy via official apt repository
-- `ensureCaddyInstalled()` - checks first, installs only if needed
-- `createAppDirectories()` - creates /srv/app/.toss/secrets/overrides structure
-- `createEmptySecretsFiles()` - creates production.env and preview.env if missing
-- `initializeState()` - creates state.json with origin (won't overwrite existing)
-- `isAlreadyProvisioned()` - checks if state.json exists
-- `provisionServer()` - orchestrates all provisioning steps
-- `verifyElevatedAccess()` - checks for root or passwordless sudo
+Returns `OriginVerificationResult`:
+- `valid: boolean` - whether deploy should proceed
+- `error?: string` - detailed error message if invalid
+- `storedOrigin?: string` - origin stored on server
+- `localOrigin?: string` - origin from local git repo
 
-**Provisioning flow:**
-1. Ensure Caddy is installed (via apt)
-2. Create directory structure
-3. Create empty secrets files
-4. Initialize state.json with git origin
+**Behavior:**
+- Allow if either origin is null (first deploy, or not a git repo)
+- Allow if origins match (after normalization)
+- Block if both exist but don't match
 
-Uses `isCaddyInstalled` from caddy.ts to avoid duplication.
+**Normalization** (via `normalizeGitOrigin`):
+- SSH `git@github.com:user/repo` → `github.com/user/repo`
+- HTTPS `https://github.com/user/repo` → `github.com/user/repo`
+- Removes `.git` suffix, trailing slashes
+- Case insensitive
+
+**Usage during deploy:**
+1. Read state from server: `readState(connection, appName)`
+2. Detect local origin: `detectGitOrigin()` (from provisioning.ts)
+3. Verify: `verifyOrigin(state.origin, localOrigin)`
+4. If `!result.valid`, abort with `result.error`
 
 ## Structure
 
@@ -50,9 +51,9 @@ src/
 ├── ssh.ts                   # SSH operations
 ├── rsync.ts                 # File sync
 ├── systemd.ts               # Process management
-├── state.ts                 # Server state
+├── state.ts                 # Server state + origin verification
 ├── caddy.ts                 # Reverse proxy
-├── provisioning.ts          # Server setup (NEW)
+├── provisioning.ts          # Server setup
 ├── *.test.ts                # Tests for each module
 └── commands/                # Command handlers (stubs)
 ```
@@ -60,15 +61,14 @@ src/
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (79 passing)
+- `bun run test` - Run tests (94 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-Provisioning module done. The next logical tasks are:
-1. **Project origin tracking** - verify origin on deploy for collision detection
-2. **Dependency tracking** - apply server dependencies from config
-3. **Deployment locking** - prevent concurrent deploys
+1. **Dependency tracking** - apply server dependencies from config
+2. **Deployment locking** - prevent concurrent deploys
+3. **Port assignment** - deterministic port allocation from 3000+
 4. **`toss init` command** - interactive wizard using all the modules
-5. **Port assignment** - deterministic port allocation from 3000+
+5. **`toss deploy` command** - the core deploy flow

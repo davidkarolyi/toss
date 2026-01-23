@@ -227,3 +227,96 @@ export function getDeployedEnvironments(state: TossState): string[] {
 export function getPortForEnvironment(state: TossState, environment: string): number | undefined {
   return state.deployments[environment]?.port;
 }
+
+/**
+ * Result of origin verification
+ */
+export interface OriginVerificationResult {
+  valid: boolean;
+  error?: string;
+  storedOrigin?: string;
+  localOrigin?: string;
+}
+
+/**
+ * Verifies that the local git origin matches the stored origin in state.
+ *
+ * This prevents accidental overwrites when two different repos use the same
+ * app name. The check is performed during deploy.
+ *
+ * Returns valid=true if:
+ * - Origins match exactly
+ * - Server has no stored origin (first deploy or state was created without origin)
+ * - Local repo has no origin (not a git repo or no remote configured)
+ *
+ * Returns valid=false if:
+ * - Both origins exist but don't match
+ */
+export function verifyOrigin(
+  storedOrigin: string | null,
+  localOrigin: string | null
+): OriginVerificationResult {
+  // If server has no stored origin, allow deploy (first deploy scenario or legacy state)
+  if (storedOrigin === null) {
+    return { valid: true };
+  }
+
+  // If local repo has no origin, allow deploy (not using git or no remote)
+  if (localOrigin === null) {
+    return { valid: true };
+  }
+
+  // Both origins exist - they must match
+  if (normalizeGitOrigin(storedOrigin) !== normalizeGitOrigin(localOrigin)) {
+    return {
+      valid: false,
+      storedOrigin,
+      localOrigin,
+      error:
+        `Project origin mismatch.\n\n` +
+        `This server has an app with the same name deployed from a different repository:\n` +
+        `  Server origin: ${storedOrigin}\n` +
+        `  Local origin:  ${localOrigin}\n\n` +
+        `This safety check prevents accidentally overwriting another project.\n\n` +
+        `If this is intentional, you can:\n` +
+        `  1. Use a different app name in toss.json\n` +
+        `  2. Remove the existing deployment with: toss remove <env>`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Normalizes a git origin URL for comparison.
+ *
+ * This handles common variations:
+ * - SSH vs HTTPS URLs for the same repo
+ * - Trailing .git suffix
+ * - Trailing slashes
+ */
+function normalizeGitOrigin(origin: string): string {
+  let normalized = origin.trim();
+
+  // Remove trailing slashes
+  normalized = normalized.replace(/\/+$/, "");
+
+  // Remove trailing .git
+  normalized = normalized.replace(/\.git$/, "");
+
+  // Convert SSH format to a normalized form
+  // git@github.com:user/repo -> github.com/user/repo
+  const sshMatch = normalized.match(/^git@([^:]+):(.+)$/);
+  if (sshMatch) {
+    normalized = `${sshMatch[1]}/${sshMatch[2]}`;
+  }
+
+  // Convert HTTPS URLs to normalized form
+  // https://github.com/user/repo -> github.com/user/repo
+  const httpsMatch = normalized.match(/^https?:\/\/([^/]+)\/(.+)$/);
+  if (httpsMatch) {
+    normalized = `${httpsMatch[1]}/${httpsMatch[2]}`;
+  }
+
+  return normalized.toLowerCase();
+}
