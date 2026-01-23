@@ -8,7 +8,9 @@ CLI foundation is complete with all major commands implemented:
 - **`toss list`** - compact deployment table
 - **`toss status`** - comprehensive project summary
 - **`toss logs`** - tail journalctl logs with `-n` support
-- **`toss ssh`** - **NEW** - interactive shell to deployment dir
+- **`toss ssh`** - interactive shell to deployment dir
+
+**All commands with environment names now have validation** (deploy, remove, logs, ssh).
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -21,6 +23,7 @@ CLI foundation is complete with all major commands implemented:
 - `src/dependencies.ts` - server dependency tracking
 - `src/lock.ts` - deployment locking
 - `src/ports.ts` - deterministic port assignment
+- `src/environment.ts` - **NEW** - environment name validation (DNS-safe)
 - `src/commands/init.ts` - interactive setup wizard
 - `src/commands/secrets.ts` - secrets push/pull commands
 - `src/commands/deploy.ts` - core deploy flow
@@ -28,25 +31,21 @@ CLI foundation is complete with all major commands implemented:
 - `src/commands/list.ts` - deployment listing
 - `src/commands/status.ts` - project status summary
 - `src/commands/logs.ts` - log tailing
-- `src/commands/ssh.ts` - interactive SSH sessions (NEW)
+- `src/commands/ssh.ts` - interactive SSH sessions
 
 ## What Just Happened
 
-Implemented `toss ssh` command with:
-- Required environment name argument
-- Opens interactive SSH session to server
-- Changes to deployment directory (`/srv/<app>/<env>/`)
-- Uses `openInteractiveSession` from `src/ssh.ts` (already existed)
-- Starts a login shell with `exec $SHELL -l` for proper environment
-- Help text with usage examples
+Implemented environment name validation:
+- Created `src/environment.ts` with validation functions
+- Rules: lowercase, a-z/0-9/- only, start with letter, max 63 chars (DNS-safe)
+- Added `validateEnvironmentNameOrThrow()` to deploy, remove, logs, ssh commands
+- 31 new tests for validation edge cases
+- Tests now at 287 passing
 
-**Usage:**
-```
-toss ssh production    # SSH into production, lands in /srv/myapp/production
-toss ssh pr-42         # SSH into pr-42 preview
-```
-
-Added 21 tests for argument parsing and path construction. Tests now at 256 passing.
+**Validation provides helpful error messages:**
+- Suggests lowercase alternative for uppercase names
+- Shows which invalid characters were found
+- Includes rules and examples in error output
 
 ## Structure
 
@@ -63,7 +62,8 @@ src/
 ├── dependencies.ts          # Server dependencies
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
-├── *.test.ts                # Tests (256 passing)
+├── environment.ts           # Environment name validation (NEW)
+├── *.test.ts                # Tests (287 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
@@ -72,16 +72,16 @@ src/
     ├── list.ts              # List command
     ├── status.ts            # Status command
     ├── logs.ts              # Logs command
-    └── ssh.ts               # SSH command (NEW)
+    └── ssh.ts               # SSH command
 ```
 
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (256 passing)
+- `bun run test` - Run tests (287 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-1. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
+All backlog items are complete! The CLI is feature-complete per the spec.

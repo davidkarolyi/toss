@@ -8,6 +8,7 @@ import {
   getSecretsOverridesDirectory,
 } from "../state.ts";
 import { updateCaddyConfig } from "../caddy.ts";
+import { validateEnvironmentNameOrThrow } from "../environment.ts";
 
 /**
  * Parses command line arguments for the remove command.
@@ -68,6 +69,9 @@ Examples:
  */
 export async function removeCommand(args: string[]): Promise<void> {
   const { environment } = parseRemoveArgs(args);
+
+  // Validate environment name
+  validateEnvironmentNameOrThrow(environment);
 
   // Safety check: prevent removing production
   if (environment === "production") {

@@ -1,5 +1,6 @@
 import { loadConfig, parseServerString } from "../config.ts";
 import { openInteractiveSession } from "../ssh.ts";
+import { validateEnvironmentNameOrThrow } from "../environment.ts";
 
 /**
  * Parses the command line arguments for the ssh command.
@@ -76,6 +77,9 @@ Examples:
     console.error("  toss ssh pr-42");
     process.exit(1);
   }
+
+  // Validate environment name
+  validateEnvironmentNameOrThrow(parsed.environment);
 
   const { config } = await loadConfig();
   const connection = parseServerString(config.server);

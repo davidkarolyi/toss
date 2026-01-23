@@ -20,6 +20,7 @@ import { applyDependencies, formatDependencyError } from "../dependencies.ts";
 import { withLock } from "../lock.ts";
 import { resolvePort } from "../ports.ts";
 import { detectGitOrigin } from "../provisioning.ts";
+import { validateEnvironmentNameOrThrow } from "../environment.ts";
 
 /**
  * Parsed secret override from command line
@@ -346,6 +347,9 @@ async function runDeployScript(
  */
 export async function deployCommand(args: string[]): Promise<void> {
   const { environment, secretOverrides } = parseDeployArgs(args);
+
+  // Validate environment name
+  validateEnvironmentNameOrThrow(environment);
 
   // Load config
   const { config, repoRoot } = await loadConfig();

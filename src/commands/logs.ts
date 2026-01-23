@@ -3,6 +3,7 @@ import { loadConfig, parseServerString } from "../config.ts";
 import { getServiceName } from "../systemd.ts";
 import { buildSshArgs } from "../ssh.ts";
 import type { ServerConnection } from "../config.ts";
+import { validateEnvironmentNameOrThrow } from "../environment.ts";
 
 /**
  * Parses the command line arguments for the logs command.
@@ -155,6 +156,9 @@ Examples:
     console.error("  toss logs pr-42 -n 100");
     process.exit(1);
   }
+
+  // Validate environment name
+  validateEnvironmentNameOrThrow(parsed.environment);
 
   const { config } = await loadConfig();
   const connection = parseServerString(config.server);

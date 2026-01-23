@@ -59,6 +59,6 @@ The command must be idempotent and resilient to interruptions. Re-running after 
 
 [x] Implement `toss ssh`. This command opens an interactive SSH session to the server. It takes a required environment name. Change directory to `/srv/<app>/<env>/` after connecting so the user lands in the deployment folder.
 
-[ ] Implement environment name validation. Environment names must be lowercase, contain only `a-z`, `0-9`, and `-`, start with a letter, and be at most 63 characters (DNS label safe). The name `production` is reserved for the production environment. Validate early in every command that accepts an environment name and provide a clear error message with the rules if validation fails.
+[x] Implement environment name validation. Environment names must be lowercase, contain only `a-z`, `0-9`, and `-`, start with a letter, and be at most 63 characters (DNS label safe). The name `production` is reserved for the production environment. Validate early in every command that accepts an environment name and provide a clear error message with the rules if validation fails.
 
 [x] Implement GitHub Actions workflow generation. This happens during `toss init` when the user opts in. The workflow should deploy on pushes to main for production, deploy on pull requests for preview environments (using `pr-<number>` naming), and remove preview environments when PRs are closed. Always include the comment step for preview URLs—use the domain if configured, otherwise construct sslip.io URLs.
