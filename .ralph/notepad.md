@@ -2,16 +2,17 @@
 
 ## Where We Are
 
-CLI foundation is complete with core modules. Major commands implemented:
+CLI foundation is complete with all major commands implemented:
 - **`toss deploy`** - full deploy flow with secret overrides
 - **`toss remove`** - environment teardown
 - **`toss list`** - compact deployment table
 - **`toss status`** - comprehensive project summary
-- **`toss logs`** - **NEW** - tail journalctl logs with `-n` support
+- **`toss logs`** - tail journalctl logs with `-n` support
+- **`toss ssh`** - **NEW** - interactive shell to deployment dir
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
-- `src/ssh.ts` - remote command execution, file operations
+- `src/ssh.ts` - remote command execution, file operations, interactive sessions
 - `src/rsync.ts` - file sync with gitignore support
 - `src/systemd.ts` - service management (toss-<app>-<env> naming)
 - `src/state.ts` - reading/writing `.toss/state.json`, origin verification
@@ -26,25 +27,26 @@ CLI foundation is complete with core modules. Major commands implemented:
 - `src/commands/remove.ts` - environment teardown
 - `src/commands/list.ts` - deployment listing
 - `src/commands/status.ts` - project status summary
-- `src/commands/logs.ts` - log tailing (NEW)
+- `src/commands/logs.ts` - log tailing
+- `src/commands/ssh.ts` - interactive SSH sessions (NEW)
 
 ## What Just Happened
 
-Implemented `toss logs` command with:
+Implemented `toss ssh` command with:
 - Required environment name argument
-- `-n <lines>` flag to show last N lines and exit
-- Continuous streaming mode (follow) when `-n` is not provided
-- Uses `journalctl -u toss-<app>-<env>` over SSH
-- Proper Ctrl+C handling (exit code 130 is expected in streaming mode)
+- Opens interactive SSH session to server
+- Changes to deployment directory (`/srv/<app>/<env>/`)
+- Uses `openInteractiveSession` from `src/ssh.ts` (already existed)
+- Starts a login shell with `exec $SHELL -l` for proper environment
 - Help text with usage examples
 
 **Usage:**
 ```
-toss logs production         # Stream continuously, Ctrl+C to stop
-toss logs pr-42 -n 100       # Show last 100 lines
+toss ssh production    # SSH into production, lands in /srv/myapp/production
+toss ssh pr-42         # SSH into pr-42 preview
 ```
 
-Added tests for argument parsing and journalctl command construction. Tests now at 235 passing.
+Added 21 tests for argument parsing and path construction. Tests now at 256 passing.
 
 ## Structure
 
@@ -61,7 +63,7 @@ src/
 ├── dependencies.ts          # Server dependencies
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
-├── *.test.ts                # Tests (235 passing)
+├── *.test.ts                # Tests (256 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
@@ -69,18 +71,17 @@ src/
     ├── remove.ts            # Remove command
     ├── list.ts              # List command
     ├── status.ts            # Status command
-    ├── logs.ts              # Logs command (NEW)
-    └── ssh.ts               # SSH command (placeholder)
+    ├── logs.ts              # Logs command
+    └── ssh.ts               # SSH command (NEW)
 ```
 
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (235 passing)
+- `bun run test` - Run tests (256 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-1. **`toss ssh`** - interactive shell to deployment dir
-2. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
+1. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)

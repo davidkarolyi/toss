@@ -57,7 +57,7 @@ The command must be idempotent and resilient to interruptions. Re-running after 
 
 [x] Implement `toss logs`. This command tails logs for an environment. It takes a required environment name. Support a `-n` flag to show a specific number of lines; otherwise stream continuously. Under the hood, run `journalctl -u toss-<app>-<env>` over SSH and stream the output to the user's terminal. Use `-f` for continuous streaming when no `-n` flag, and `-n <count>` for line count.
 
-[ ] Implement `toss ssh`. This command opens an interactive SSH session to the server. It takes a required environment name. Change directory to `/srv/<app>/<env>/` after connecting so the user lands in the deployment folder.
+[x] Implement `toss ssh`. This command opens an interactive SSH session to the server. It takes a required environment name. Change directory to `/srv/<app>/<env>/` after connecting so the user lands in the deployment folder.
 
 [ ] Implement environment name validation. Environment names must be lowercase, contain only `a-z`, `0-9`, and `-`, start with a letter, and be at most 63 characters (DNS label safe). The name `production` is reserved for the production environment. Validate early in every command that accepts an environment name and provide a clear error message with the rules if validation fails.
 
