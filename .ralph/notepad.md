@@ -2,7 +2,7 @@
 
 ## Where We Are
 
-CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, origin verification, dependency tracking, deployment locking, init command, and now **port assignment**.
+CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, origin verification, dependency tracking, deployment locking, init command, port assignment, and now **secrets management**.
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -14,26 +14,26 @@ CLI foundation is complete with config loading, SSH, rsync, systemd, state manag
 - `src/provisioning.ts` - server setup for `toss init`
 - `src/dependencies.ts` - server dependency tracking
 - `src/lock.ts` - deployment locking
+- `src/ports.ts` - deterministic port assignment
 - `src/commands/init.ts` - interactive setup wizard
-- `src/ports.ts` - deterministic port assignment (NEW)
+- `src/commands/secrets.ts` - secrets push/pull commands (NEW)
 
-## Port Assignment Module
+## Secrets Management Module
 
-`src/ports.ts` handles deterministic port allocation starting from 3000.
+`src/commands/secrets.ts` handles pushing and pulling secrets to/from the VPS.
 
-**Key functions:**
-- `getUsedPorts(connection)` - queries server for actually listening ports via `ss -tlnp` (with `netstat` fallback)
-- `parsePortListingOutput(output)` - parses ss/netstat output to extract port numbers
-- `getTrackedPorts(state)` - extracts ports from state.json deployments
-- `findNextAvailablePort(usedPorts, trackedPorts)` - finds next free port (not in either set)
-- `resolvePort(connection, state, environment)` - main entry point: returns existing port if assigned, otherwise assigns new one
+**Commands:**
+- `toss secrets push <env> --file <path>` - uploads local file to `/srv/<app>/.toss/secrets/<env>.env`
+- `toss secrets pull <env> --file <path>` - downloads secrets to local file
 
-**How it works:**
-1. If environment already has a port in state.json, use that
-2. Otherwise, query server for ports in use (ss/netstat)
-3. Combine with ports tracked in state.json
-4. Find lowest available port starting from 3000
-5. Returns `{ port, isNew }` so caller knows if state needs updating
+**Key points:**
+- Environment must be `production` or `preview` (not arbitrary env names like `pr-42`)
+- Production secrets are base for production deployments
+- Preview secrets are base for ALL non-production deployments
+- Per-environment overrides are handled separately via deploy `-s` flag
+- Supports `--file`, `-f`, and `--file=path` syntax
+- Creates secrets directory if it doesn't exist (for push)
+- Clear error messages with usage examples
 
 ## Structure
 
@@ -49,22 +49,24 @@ src/
 ├── provisioning.ts          # Server setup
 ├── dependencies.ts          # Server dependencies
 ├── lock.ts                  # Deployment locking
-├── ports.ts                 # Port assignment (NEW)
+├── ports.ts                 # Port assignment
 ├── *.test.ts                # Tests for each module
 └── commands/
-    └── init.ts              # Interactive setup wizard
+    ├── init.ts              # Interactive setup wizard
+    ├── secrets.ts           # Secrets push/pull (NEW)
     └── (other stubs)
 ```
 
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (154 passing)
+- `bun run test` - Run tests (172 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-1. **`toss secrets push/pull`** - secrets management commands
-2. **`toss deploy`** - the core deploy flow (now unblocked by port assignment)
-3. **`toss remove`** - tear down environments
+1. **`toss deploy`** - the core deploy flow (main feature, all dependencies ready)
+2. **`toss remove`** - tear down environments
+3. **`toss list`** / **`toss status`** / **`toss logs`** / **`toss ssh`** - management commands
+4. **Environment name validation** - needed by all commands accepting env names
