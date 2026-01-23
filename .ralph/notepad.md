@@ -2,7 +2,11 @@
 
 ## Where We Are
 
-CLI foundation is complete with core modules plus **`toss deploy`**, **`toss remove`**, and **`toss list`** are fully implemented.
+CLI foundation is complete with core modules. Major commands implemented:
+- **`toss deploy`** - full deploy flow with secret overrides
+- **`toss remove`** - environment teardown
+- **`toss list`** - compact deployment table
+- **`toss status`** - **NEW** - comprehensive project summary
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -19,37 +23,53 @@ CLI foundation is complete with core modules plus **`toss deploy`**, **`toss rem
 - `src/commands/secrets.ts` - secrets push/pull commands
 - `src/commands/deploy.ts` - core deploy flow
 - `src/commands/remove.ts` - environment teardown
-- `src/commands/list.ts` - **NEW** - show deployments with URLs
+- `src/commands/list.ts` - deployment listing
+- `src/commands/status.ts` - project status summary
 
-## Commands Implemented
+## What Just Happened
 
-### `toss deploy <environment>` (complete)
-Deploys the current working directory. Supports `-s KEY=VALUE` for persistent secret overrides.
+Implemented `toss status` command with:
+- Configuration section (app, server, domain or "(sslip.io)", start command, deploy script count)
+- Server connection test with troubleshooting tips on failure
+- Lock status (shows unlocked, locked, or locked (stale))
+- Deployments section showing for each:
+  - URL, port, status (running/stopped/failed)
+  - Secret override keys (just keys, not values)
 
-### `toss remove <environment>` (complete)
-Tears down non-production environments.
-
-### `toss list` (new)
-Shows all deployments for the current app. Usage:
+**Output example:**
 ```
-toss list
+Configuration
+──────────────────────────────────────────────────
+  App:           myapp
+  Server:        root@64.23.123.45
+  Domain:        myapp.com
+  Start:         npm start
+  Deploy script: 2 command(s)
+
+Server Connection
+──────────────────────────────────────────────────
+  Status: connected
+
+Deploy Lock
+──────────────────────────────────────────────────
+  Status: unlocked
+
+Deployments
+──────────────────────────────────────────────────
+
+  production
+    URL:      https://myapp.com
+    Port:     3000
+    Status:   running
+
+  pr-42
+    URL:      https://pr-42.preview.myapp.com
+    Port:     3001
+    Status:   running
+    Overrides: DATABASE_URL, DEBUG
 ```
 
-**Output:**
-```
-ENVIRONMENT  PORT  STATUS   URL
-----------------------------------------------
-production   3000  running  https://myapp.com
-pr-42        3001  running  https://pr-42.preview.myapp.com
-pr-123       3002  stopped  https://pr-123.preview.myapp.com
-```
-
-**Key details:**
-- Reads state from server (`/srv/<app>/.toss/state.json`)
-- Constructs URLs using domain or sslip.io fallback (reuses `getDeploymentUrl` from caddy.ts)
-- Gets live systemd service status for each deployment
-- Sorts: production first, then alphabetically
-- Shows helpful message when no deployments exist
+Reuses `parseEnvFile` from deploy.ts for reading override files.
 
 ## Structure
 
@@ -72,8 +92,8 @@ src/
     ├── secrets.ts           # Secrets push/pull
     ├── deploy.ts            # Deploy command
     ├── remove.ts            # Remove command
-    ├── list.ts              # List command (NEW)
-    └── (other stubs)
+    ├── list.ts              # List command
+    └── status.ts            # Status command (NEW)
 ```
 
 ## Scripts
@@ -85,7 +105,6 @@ src/
 
 ## What's Next
 
-1. **`toss status`** - config summary + deployments + lock status + secret override keys
-2. **`toss logs`** - tail journalctl logs
-3. **`toss ssh`** - interactive shell to deployment dir
-4. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
+1. **`toss logs`** - tail journalctl logs with `-n` flag support
+2. **`toss ssh`** - interactive shell to deployment dir
+3. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
