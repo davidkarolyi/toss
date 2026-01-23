@@ -24,7 +24,7 @@
 
 [x] Implement deterministic port assignment. Ports start at 3000 and increment. Read existing ports from `.toss/state.json` to find ports already assigned by toss. Additionally, check which ports are actually in use on the server using `ss -tlnp` (or `netstat -tlnp` as fallback). Assign the next available port that is both untracked in state.json AND not in use on the server. Always update `state.json` before touching systemd, so every deployment has a port recorded even if the service isn't running yet.
 
-[ ] Implement `toss deploy`. This is the core command. It takes a required environment name (e.g., `production`, `pr-42`). No defaults—users must be explicit. Always deploys the current working directory. Use the repo root (directory containing `toss.json`) as the rsync source.
+[x] Implement `toss deploy`. This is the core command. It takes a required environment name (e.g., `production`, `pr-42`). No defaults—users must be explicit. Always deploys the current working directory. Use the repo root (directory containing `toss.json`) as the rsync source.
 
 Supports `--secret` / `-s` flag for per-environment secret overrides:
 - `toss deploy pr-42 -s DATABASE_URL=postgres://... -s DEBUG=true`
