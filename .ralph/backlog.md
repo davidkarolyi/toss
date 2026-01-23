@@ -55,7 +55,7 @@ The command must be idempotent and resilient to interruptions. Re-running after 
 
 [x] Implement `toss status`. This command gives a quick summary of the current project. Show the resolved config values including app name, server, domain (or "sslip.io" if not set), etc. Check SSH connectivity to the server and report success/failure. Reuse the deployment scan from `toss list` to show what's deployed. Show the lock status if a deploy is in progress. For each deployment, show any secret overrides that are set (just the keys, not values).
 
-[ ] Implement `toss logs`. This command tails logs for an environment. It takes a required environment name. Support a `-n` flag to show a specific number of lines; otherwise stream continuously. Under the hood, run `journalctl -u toss-<app>-<env>` over SSH and stream the output to the user's terminal. Use `-f` for continuous streaming when no `-n` flag, and `-n <count>` for line count.
+[x] Implement `toss logs`. This command tails logs for an environment. It takes a required environment name. Support a `-n` flag to show a specific number of lines; otherwise stream continuously. Under the hood, run `journalctl -u toss-<app>-<env>` over SSH and stream the output to the user's terminal. Use `-f` for continuous streaming when no `-n` flag, and `-n <count>` for line count.
 
 [ ] Implement `toss ssh`. This command opens an interactive SSH session to the server. It takes a required environment name. Change directory to `/srv/<app>/<env>/` after connecting so the user lands in the deployment folder.
 

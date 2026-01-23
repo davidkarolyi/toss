@@ -6,7 +6,8 @@ CLI foundation is complete with core modules. Major commands implemented:
 - **`toss deploy`** - full deploy flow with secret overrides
 - **`toss remove`** - environment teardown
 - **`toss list`** - compact deployment table
-- **`toss status`** - **NEW** - comprehensive project summary
+- **`toss status`** - comprehensive project summary
+- **`toss logs`** - **NEW** - tail journalctl logs with `-n` support
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -25,51 +26,25 @@ CLI foundation is complete with core modules. Major commands implemented:
 - `src/commands/remove.ts` - environment teardown
 - `src/commands/list.ts` - deployment listing
 - `src/commands/status.ts` - project status summary
+- `src/commands/logs.ts` - log tailing (NEW)
 
 ## What Just Happened
 
-Implemented `toss status` command with:
-- Configuration section (app, server, domain or "(sslip.io)", start command, deploy script count)
-- Server connection test with troubleshooting tips on failure
-- Lock status (shows unlocked, locked, or locked (stale))
-- Deployments section showing for each:
-  - URL, port, status (running/stopped/failed)
-  - Secret override keys (just keys, not values)
+Implemented `toss logs` command with:
+- Required environment name argument
+- `-n <lines>` flag to show last N lines and exit
+- Continuous streaming mode (follow) when `-n` is not provided
+- Uses `journalctl -u toss-<app>-<env>` over SSH
+- Proper Ctrl+C handling (exit code 130 is expected in streaming mode)
+- Help text with usage examples
 
-**Output example:**
+**Usage:**
 ```
-Configuration
-──────────────────────────────────────────────────
-  App:           myapp
-  Server:        root@64.23.123.45
-  Domain:        myapp.com
-  Start:         npm start
-  Deploy script: 2 command(s)
-
-Server Connection
-──────────────────────────────────────────────────
-  Status: connected
-
-Deploy Lock
-──────────────────────────────────────────────────
-  Status: unlocked
-
-Deployments
-──────────────────────────────────────────────────
-
-  production
-    URL:      https://myapp.com
-    Port:     3000
-    Status:   running
-
-  pr-42
-    URL:      https://pr-42.preview.myapp.com
-    Port:     3001
-    Status:   running
-    Overrides: DATABASE_URL, DEBUG
+toss logs production         # Stream continuously, Ctrl+C to stop
+toss logs pr-42 -n 100       # Show last 100 lines
 ```
 
-Reuses `parseEnvFile` from deploy.ts for reading override files.
+Added tests for argument parsing and journalctl command construction. Tests now at 235 passing.
 
 ## Structure
 
@@ -86,25 +61,26 @@ src/
 ├── dependencies.ts          # Server dependencies
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
-├── *.test.ts                # Tests (211 passing)
+├── *.test.ts                # Tests (235 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
     ├── deploy.ts            # Deploy command
     ├── remove.ts            # Remove command
     ├── list.ts              # List command
-    └── status.ts            # Status command (NEW)
+    ├── status.ts            # Status command
+    ├── logs.ts              # Logs command (NEW)
+    └── ssh.ts               # SSH command (placeholder)
 ```
 
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (211 passing)
+- `bun run test` - Run tests (235 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-1. **`toss logs`** - tail journalctl logs with `-n` flag support
-2. **`toss ssh`** - interactive shell to deployment dir
-3. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
+1. **`toss ssh`** - interactive shell to deployment dir
+2. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
