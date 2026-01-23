@@ -2,7 +2,7 @@
 
 ## Where We Are
 
-CLI foundation is complete with all core modules plus **`toss deploy` is now fully implemented**.
+CLI foundation is complete with core modules plus **`toss deploy`** and **`toss remove`** are fully implemented.
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -17,40 +17,36 @@ CLI foundation is complete with all core modules plus **`toss deploy` is now ful
 - `src/ports.ts` - deterministic port assignment
 - `src/commands/init.ts` - interactive setup wizard
 - `src/commands/secrets.ts` - secrets push/pull commands
-- `src/commands/deploy.ts` - **COMPLETE** - the core deploy flow
+- `src/commands/deploy.ts` - core deploy flow
+- `src/commands/remove.ts` - **NEW** - environment teardown
 
-## Deploy Command
+## Commands Implemented
 
-`src/commands/deploy.ts` is the core feature. Usage:
+### `toss deploy <environment>` (complete)
+Deploys the current working directory. Supports `-s KEY=VALUE` for persistent secret overrides.
+
+### `toss remove <environment>` (new)
+Tears down non-production environments. Usage:
 ```
-toss deploy <environment>
-toss deploy pr-42 -s DATABASE_URL=postgres://...
-toss deploy pr-42 -s KEY1=val1 -s KEY2=val2
-toss deploy pr-42 -s DEBUG=      # Remove override
+toss remove pr-42
+toss remove staging
 ```
 
-**Deploy flow (all 13 steps):**
-1. Acquire deployment lock (abort if locked)
-2. Verify project origin matches stored origin
-3. Update override file if `-s` flags provided
-4. Rsync files to `/srv/<app>/<env>/`
-5. Apply missing server dependencies
-6. Merge secrets (base + overrides) → write `.env`
-7. Resolve/assign port, persist to state.json
-8. Run deployScript commands with TOSS_* env vars
-9. Generate/update systemd unit, daemon-reload, enable
-10. Start or restart service
-11. Regenerate Caddy config and reload
-12. Release lock
-13. Print deployment URL
+**Remove flow:**
+1. Validates environment (refuses to remove `production`)
+2. Checks if environment exists (in state or as directory)
+3. Stops and removes systemd service
+4. Removes deployment directory (`/srv/<app>/<env>/`)
+5. Removes secret overrides (`/srv/<app>/.toss/secrets/overrides/<env>.env`)
+6. Updates state.json (removes entry)
+7. Regenerates Caddy config and reloads
+8. Prints summary of what was removed
 
-**Key implementation details:**
-- Uses `withLock()` for automatic lock acquisition/release
-- Secret overrides are persistent (saved to `overrides/<env>.env`)
-- Empty value removes an override: `-s KEY=`
-- Warning shown if no secrets found (deploy continues)
-- Caddy errors are warnings, not fatal (app still runs)
-- Helper functions `parseEnvFile()` and `formatEnvFile()` are exported for testing
+**Key details:**
+- Production protected as safety measure (suggests SSH workaround for manual teardown)
+- Handles orphaned directories (not in state but on disk)
+- Caddy errors are warnings, not fatal
+- Uses `removeService()` from systemd module for clean service removal
 
 ## Structure
 
@@ -67,26 +63,26 @@ src/
 ├── dependencies.ts          # Server dependencies
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
-├── *.test.ts                # Tests for each module
+├── *.test.ts                # Tests (211 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
-    ├── deploy.ts            # Deploy command (COMPLETE)
+    ├── deploy.ts            # Deploy command
+    ├── remove.ts            # Remove command (NEW)
     └── (other stubs)
 ```
 
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (195 passing)
+- `bun run test` - Run tests (211 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-1. **`toss remove`** - tear down environments (stop service, remove files, update state)
-2. **`toss list`** - show deployments with URLs
-3. **`toss status`** - config summary + deployments + lock status
-4. **`toss logs`** - tail journalctl logs
-5. **`toss ssh`** - interactive shell to deployment dir
-6. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
+1. **`toss list`** - show deployments with URLs
+2. **`toss status`** - config summary + deployments + lock status
+3. **`toss logs`** - tail journalctl logs
+4. **`toss ssh`** - interactive shell to deployment dir
+5. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
