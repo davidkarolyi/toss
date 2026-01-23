@@ -2,7 +2,7 @@
 
 ## Where We Are
 
-CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, origin verification, and now **dependency tracking** modules. All commands are placeholder stubs.
+CLI foundation is complete with config loading, SSH, rsync, systemd, state management, Caddy config generation, server provisioning, origin verification, dependency tracking, and now **deployment locking** modules. All commands are placeholder stubs.
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -12,37 +12,48 @@ CLI foundation is complete with config loading, SSH, rsync, systemd, state manag
 - `src/state.ts` - reading/writing `.toss/state.json`, origin verification
 - `src/caddy.ts` - Caddyfile generation and Caddy management
 - `src/provisioning.ts` - server setup for `toss init`
-- `src/dependencies.ts` - server dependency tracking (NEW)
+- `src/dependencies.ts` - server dependency tracking
+- `src/lock.ts` - deployment locking (NEW)
 
-## Dependency Tracking (`src/dependencies.ts`)
+## Deployment Locking (`src/lock.ts`)
 
-Handles one-time server installations (runtimes, etc.) that shouldn't re-run on every deploy.
+Prevents concurrent deploys to the same server by acquiring a lock in `.toss/state.json`.
 
 **Key functions:**
 
-- `getMissingDependencies(configDeps, appliedDeps)` - Returns list of dependency names in config but not yet applied
-- `applyDependencies(connection, config, state, appName, options)` - Installs missing deps, updates state after each success
-- `formatDependencyError(result)` - Formats user-friendly error messages
+- `createLock(environment)` - Creates lock object with hostname, PID, timestamp
+- `isLockStale(lock)` - Returns true if lock is older than 30 minutes
+- `isOwnLock(lock)` - Returns true if current process owns the lock
+- `isDeadProcessLock(lock)` - Detects dead process locks on same host
+- `acquireLock(connection, appName, environment)` - Attempt to acquire lock
+- `releaseLock(connection, appName)` - Release lock if owned by current process
+- `withLock(connection, appName, environment, fn, options)` - Execute function with lock
+- `LockError` - Custom error class for lock failures
 
 **Usage during deploy:**
 ```typescript
-const result = await applyDependencies(connection, config, state, appName, {
-  onProgress: (msg) => console.log(`→ ${msg}`)
+await withLock(connection, appName, environment, async () => {
+  // Deploy logic here - lock is held for entire duration
+  await syncFiles();
+  await runDeployScript();
+  await restartService();
+}, {
+  onLockAcquired: (result) => {
+    if (result.existingLock) {
+      console.log(`→ Breaking stale lock: ${result.reason}`);
+    }
+    console.log(`→ Lock acquired`);
+  },
+  onLockReleased: () => console.log(`→ Lock released`)
 });
-
-if (!result.success) {
-  const failedDep = result.applied.find(d => !d.success);
-  console.error(formatDependencyError(failedDep));
-  process.exit(1);
-}
 ```
 
-**Behavior:**
-- Reads `dependencies` from toss.json (map of name → install command)
-- Compares against `appliedDependencies` in state.json
-- Runs missing dependencies in order with `stream: true` (output visible)
-- Updates state.json after each successful install (crash-safe)
-- Fails fast if any dependency fails
+**Lock acquisition rules:**
+1. If no lock exists → acquire
+2. If lock owned by this process → allow (re-entrant)
+3. If lock is stale (>30 min) → break and acquire
+4. If lock from dead process on same host → break and acquire
+5. Otherwise → fail with `LockError`
 
 ## Structure
 
@@ -56,7 +67,8 @@ src/
 ├── state.ts                 # Server state + origin verification
 ├── caddy.ts                 # Reverse proxy
 ├── provisioning.ts          # Server setup
-├── dependencies.ts          # Server dependencies (NEW)
+├── dependencies.ts          # Server dependencies
+├── lock.ts                  # Deployment locking (NEW)
 ├── *.test.ts                # Tests for each module
 └── commands/                # Command handlers (stubs)
 ```
@@ -64,13 +76,12 @@ src/
 ## Scripts
 
 - `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (107 passing)
+- `bun run test` - Run tests (137 passing)
 - `bun run typecheck` - Type check
 - `bun run build` - Build executables
 
 ## What's Next
 
-1. **Deployment locking** - prevent concurrent deploys
-2. **Port assignment** - deterministic port allocation from 3000+
-3. **`toss init` command** - interactive wizard using all the modules
-4. **`toss deploy` command** - the core deploy flow
+1. **Port assignment** - deterministic port allocation from 3000+
+2. **`toss init` command** - interactive wizard using all the modules
+3. **`toss deploy` command** - the core deploy flow
