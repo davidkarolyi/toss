@@ -2,7 +2,7 @@
 
 ## Where We Are
 
-CLI foundation is complete with core modules plus **`toss deploy`** and **`toss remove`** are fully implemented.
+CLI foundation is complete with core modules plus **`toss deploy`**, **`toss remove`**, and **`toss list`** are fully implemented.
 
 **Implemented modules:**
 - `src/config.ts` - loads/validates `toss.json`, parses server strings
@@ -18,35 +18,38 @@ CLI foundation is complete with core modules plus **`toss deploy`** and **`toss 
 - `src/commands/init.ts` - interactive setup wizard
 - `src/commands/secrets.ts` - secrets push/pull commands
 - `src/commands/deploy.ts` - core deploy flow
-- `src/commands/remove.ts` - **NEW** - environment teardown
+- `src/commands/remove.ts` - environment teardown
+- `src/commands/list.ts` - **NEW** - show deployments with URLs
 
 ## Commands Implemented
 
 ### `toss deploy <environment>` (complete)
 Deploys the current working directory. Supports `-s KEY=VALUE` for persistent secret overrides.
 
-### `toss remove <environment>` (new)
-Tears down non-production environments. Usage:
+### `toss remove <environment>` (complete)
+Tears down non-production environments.
+
+### `toss list` (new)
+Shows all deployments for the current app. Usage:
 ```
-toss remove pr-42
-toss remove staging
+toss list
 ```
 
-**Remove flow:**
-1. Validates environment (refuses to remove `production`)
-2. Checks if environment exists (in state or as directory)
-3. Stops and removes systemd service
-4. Removes deployment directory (`/srv/<app>/<env>/`)
-5. Removes secret overrides (`/srv/<app>/.toss/secrets/overrides/<env>.env`)
-6. Updates state.json (removes entry)
-7. Regenerates Caddy config and reloads
-8. Prints summary of what was removed
+**Output:**
+```
+ENVIRONMENT  PORT  STATUS   URL
+----------------------------------------------
+production   3000  running  https://myapp.com
+pr-42        3001  running  https://pr-42.preview.myapp.com
+pr-123       3002  stopped  https://pr-123.preview.myapp.com
+```
 
 **Key details:**
-- Production protected as safety measure (suggests SSH workaround for manual teardown)
-- Handles orphaned directories (not in state but on disk)
-- Caddy errors are warnings, not fatal
-- Uses `removeService()` from systemd module for clean service removal
+- Reads state from server (`/srv/<app>/.toss/state.json`)
+- Constructs URLs using domain or sslip.io fallback (reuses `getDeploymentUrl` from caddy.ts)
+- Gets live systemd service status for each deployment
+- Sorts: production first, then alphabetically
+- Shows helpful message when no deployments exist
 
 ## Structure
 
@@ -68,7 +71,8 @@ src/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
     ├── deploy.ts            # Deploy command
-    ├── remove.ts            # Remove command (NEW)
+    ├── remove.ts            # Remove command
+    ├── list.ts              # List command (NEW)
     └── (other stubs)
 ```
 
@@ -81,8 +85,7 @@ src/
 
 ## What's Next
 
-1. **`toss list`** - show deployments with URLs
-2. **`toss status`** - config summary + deployments + lock status
-3. **`toss logs`** - tail journalctl logs
-4. **`toss ssh`** - interactive shell to deployment dir
-5. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
+1. **`toss status`** - config summary + deployments + lock status + secret override keys
+2. **`toss logs`** - tail journalctl logs
+3. **`toss ssh`** - interactive shell to deployment dir
+4. **Environment name validation** - DNS-safe names (a-z, 0-9, -, start with letter, max 63 chars)
