@@ -71,10 +71,51 @@ export function getSecretsOverridesDirectory(appName: string): string {
 }
 
 /**
- * Gets the deployment directory for a specific environment
+ * Gets the deployment directory for a specific environment (legacy, use getEnvDirectory instead)
+ * @deprecated Use getEnvDirectory for the new release-based structure
  */
 export function getDeploymentDirectory(appName: string, environment: string): string {
   return `/srv/${appName}/${environment}`;
+}
+
+/**
+ * Gets the environment directory for a specific environment.
+ * This is the base directory containing releases/, preserve/, and current symlink.
+ */
+export function getEnvDirectory(appName: string, environment: string): string {
+  return `/srv/${appName}/${environment}`;
+}
+
+/**
+ * Gets the releases directory for a specific environment.
+ * Contains timestamped release directories.
+ */
+export function getReleasesDirectory(appName: string, environment: string): string {
+  return `${getEnvDirectory(appName, environment)}/releases`;
+}
+
+/**
+ * Gets the preserve directory for a specific environment.
+ * Contains persistent files that survive across releases.
+ */
+export function getPreserveDirectory(appName: string, environment: string): string {
+  return `${getEnvDirectory(appName, environment)}/preserve`;
+}
+
+/**
+ * Gets the path to the current symlink for a specific environment.
+ * This symlink always points to the active release.
+ */
+export function getCurrentSymlinkPath(appName: string, environment: string): string {
+  return `${getEnvDirectory(appName, environment)}/current`;
+}
+
+/**
+ * Gets the current working directory for an environment.
+ * This is what systemd and deployScript should use.
+ */
+export function getCurrentWorkingDirectory(appName: string, environment: string): string {
+  return getCurrentSymlinkPath(appName, environment);
 }
 
 /**

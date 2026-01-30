@@ -3,7 +3,7 @@
 ## Where We Are
 
 CLI foundation is complete with all major commands implemented:
-- **`toss deploy`** - full deploy flow with secret overrides
+- **`toss deploy`** - full deploy flow with release-based directory structure
 - **`toss remove`** - environment teardown
 - **`toss list`** - compact deployment table
 - **`toss status`** - comprehensive project summary
@@ -12,45 +12,56 @@ CLI foundation is complete with all major commands implemented:
 
 **All commands with environment names have validation** (deploy, remove, logs, ssh).
 
-**Implemented modules:**
-- `src/config.ts` - loads/validates `toss.json`, parses server strings, **now with `preserve` and `keepReleases` validation**
-- `src/ssh.ts` - remote command execution, file operations, interactive sessions
-- `src/rsync.ts` - file sync with gitignore support
-- `src/systemd.ts` - service management (toss-<app>-<env> naming)
-- `src/state.ts` - reading/writing `.toss/state.json`, origin verification
-- `src/caddy.ts` - Caddyfile generation and Caddy management
-- `src/provisioning.ts` - server setup for `toss init`
-- `src/dependencies.ts` - server dependency tracking
-- `src/lock.ts` - deployment locking
-- `src/ports.ts` - deterministic port assignment
-- `src/environment.ts` - environment name validation (DNS-safe)
-- `src/commands/init.ts` - interactive setup wizard
-- `src/commands/secrets.ts` - secrets push/pull commands
-- `src/commands/deploy.ts` - core deploy flow
-- `src/commands/remove.ts` - environment teardown
-- `src/commands/list.ts` - deployment listing
-- `src/commands/status.ts` - project status summary
-- `src/commands/logs.ts` - log tailing
-- `src/commands/ssh.ts` - interactive SSH sessions
-
 ## What Just Happened
 
-Added two new optional config fields for release-based deployments:
-- **`preserve`**: array of paths to persist across releases (e.g., `["uploads", "data.sqlite"]`)
-- **`keepReleases`**: positive integer for how many releases to keep (defaults to 3 for production)
+Refactored the deploy command to use a release-based directory structure:
 
-**Implementation details:**
-- Added `PreservePathValidation` interface and `validatePreservePath()` helper
-- Added `isValidKeepReleases()` type guard function
-- Validation rules for `preserve`:
-  - Must be array of non-empty strings
-  - No absolute paths (starting with `/`)
-  - No `..` segments (prevents directory traversal)
-  - Simple relative paths like `uploads`, `data/db.sqlite` are allowed
-- Validation rules for `keepReleases`:
-  - Must be positive integer (>= 1)
-- Added 25 new tests for the validation functions
-- Tests now at 312 passing
+**New directory structure:**
+```
+/srv/<app>/<env>/
+├── releases/
+│   ├── 20260130_143022/    # timestamped release directories
+│   └── 20260130_153045/
+├── preserve/               # persistent files across releases
+│   ├── uploads/
+│   └── data.sqlite
+└── current → releases/20260130_153045  # symlink to active release
+```
+
+**Key changes:**
+1. Created `src/releases.ts` module with:
+   - `generateReleaseTimestamp()` - generates `YYYYMMDD_HHMMSS` format
+   - `getReleaseDirectory()` - path helper
+   - `ensureReleaseDirectories()` - creates `releases/` and `preserve/`
+   - `linkPreservedItems()` - creates symlinks for preserved files
+   - `switchCurrentSymlink()` - atomic symlink swap with `ln -sfn`
+   - `getCurrentReleaseTarget()` - reads current symlink target
+   - `listReleases()` - lists all releases (sorted)
+
+2. Added helper functions to `src/state.ts`:
+   - `getEnvDirectory()` - `/srv/<app>/<env>`
+   - `getReleasesDirectory()` - `/srv/<app>/<env>/releases`
+   - `getPreserveDirectory()` - `/srv/<app>/<env>/preserve`
+   - `getCurrentSymlinkPath()` - `/srv/<app>/<env>/current`
+   - `getCurrentWorkingDirectory()` - same as symlink path
+
+3. Updated `src/commands/deploy.ts`:
+   - Rsync to timestamped release directory instead of env dir
+   - Link preserved items after rsync
+   - Atomic symlink swap to activate release
+   - systemd working directory points to `current/`
+   - New env vars: `TOSS_ENV_DIR`, updated `TOSS_PROD_DIR` to point to `current/`
+   - Shows release timestamp in success output
+
+**Environment variables during deployScript:**
+- `TOSS_ENV` - environment name
+- `TOSS_APP` - app name
+- `TOSS_PORT` - assigned port
+- `TOSS_RELEASE_DIR` - full path to timestamped release
+- `TOSS_ENV_DIR` - `/srv/<app>/<env>`
+- `TOSS_PROD_DIR` - `/srv/<app>/production/current`
+
+**Tests:** 323 passing
 
 ## Structure
 
@@ -61,18 +72,19 @@ src/
 ├── ssh.ts                   # SSH operations
 ├── rsync.ts                 # File sync
 ├── systemd.ts               # Process management
-├── state.ts                 # Server state + origin verification
+├── state.ts                 # Server state + directory helpers
 ├── caddy.ts                 # Reverse proxy
 ├── provisioning.ts          # Server setup
 ├── dependencies.ts          # Server dependencies
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
 ├── environment.ts           # Environment name validation
-├── *.test.ts                # Tests (312 passing)
+├── releases.ts              # Release management (NEW)
+├── *.test.ts                # Tests (323 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
-    ├── deploy.ts            # Deploy command
+    ├── deploy.ts            # Deploy command (UPDATED)
     ├── remove.ts            # Remove command
     ├── list.ts              # List command
     ├── status.ts            # Status command
@@ -80,21 +92,9 @@ src/
     └── ssh.ts               # SSH command
 ```
 
-## Scripts
-
-- `bun run dev` - Run CLI in development
-- `bun run test` - Run tests (312 passing)
-- `bun run typecheck` - Type check
-- `bun run build` - Build executables
-
 ## What's Next
 
-Next backlog item: Refactor the deploy command to use release-based directory structure with:
-- `/srv/<app>/<env>/releases/<timestamp>/` for each release
-- `/srv/<app>/<env>/current` symlink to active release
-- `/srv/<app>/<env>/preserve/` for persistent files
-
-This will involve significant changes to:
-- `src/commands/deploy.ts` - rsync to releases dir, create symlinks for preserved items, atomic symlink swap
-- `src/systemd.ts` - working directory should point to `current/`
-- Environment variables need updating (`TOSS_RELEASE_DIR`, `TOSS_ENV_DIR`, `TOSS_PROD_DIR`)
+Next backlog items:
+1. **Release cleanup** - delete old releases (keepReleases for production, only current for previews)
+2. **Update ssh/remove commands** - land in `current/`, remove whole env dir
+3. **Update CLAUDE.md** - document new structure

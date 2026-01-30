@@ -70,7 +70,7 @@ The command must be idempotent and resilient to interruptions. Re-running after 
     - If both fields are missing, releases are still used (feature is always-on).
     - If `preserve` is provided, store as-is in config and use during deploy.
 
-[ ] Refactor the deploy command to use a release-based directory structure. Right now deploys go straight into `/srv/<app>/<env>/` which means each deploy overwrites the previous one. We want to switch to timestamped releases with an atomic symlink swap. The new structure should be:
+[x] Refactor the deploy command to use a release-based directory structure. Right now deploys go straight into `/srv/<app>/<env>/` which means each deploy overwrites the previous one. We want to switch to timestamped releases with an atomic symlink swap. The new structure should be:
     - `/srv/<app>/<env>/releases/<timestamp>/` for each release
     - `/srv/<app>/<env>/current` symlink to the active release
     - `/srv/<app>/<env>/preserve/` directory for persistent files

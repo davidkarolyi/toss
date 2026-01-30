@@ -10,11 +10,19 @@ import {
 import {
   readState,
   writeState,
-  getDeploymentDirectory,
   getSecretsDirectory,
   getSecretsOverridesDirectory,
   verifyOrigin,
+  getEnvDirectory,
+  getCurrentWorkingDirectory,
 } from "../state.ts";
+import {
+  generateReleaseTimestamp,
+  getReleaseDirectory,
+  ensureReleaseDirectories,
+  linkPreservedItems,
+  switchCurrentSymlink,
+} from "../releases.ts";
 import { updateCaddyConfig, getDeploymentUrl } from "../caddy.ts";
 import { applyDependencies, formatDependencyError } from "../dependencies.ts";
 import { withLock } from "../lock.ts";
@@ -367,9 +375,12 @@ export async function deployCommand(args: string[]): Promise<void> {
   const connection = parseServerString(config.server);
   const serverHost = extractHostFromServer(config.server);
 
-  // Paths
-  const deploymentDir = getDeploymentDirectory(config.app, environment);
-  const envFilePath = `${deploymentDir}/.env`;
+  // Paths for release-based deployment
+  const envDir = getEnvDirectory(config.app, environment);
+  const releaseTimestamp = generateReleaseTimestamp();
+  const releaseDir = getReleaseDirectory(config.app, environment, releaseTimestamp);
+  const currentDir = getCurrentWorkingDirectory(config.app, environment);
+  const envFilePath = `${currentDir}/.env`;
 
   console.log(`\n→ Deploying ${config.app} to ${environment}...\n`);
 
@@ -400,14 +411,18 @@ export async function deployCommand(args: string[]): Promise<void> {
         );
       }
 
-      // 3. Rsync files
+      // 3. Ensure release infrastructure exists (releases/ and preserve/ directories)
+      console.log("→ Preparing release directories...");
+      await ensureReleaseDirectories(connection, config.app, environment);
+
+      // 4. Rsync files to new release directory
       console.log("→ Syncing files...");
-      await syncToRemoteOrFail(repoRoot, connection, deploymentDir, {
+      await syncToRemoteOrFail(repoRoot, connection, releaseDir, {
         stream: false,
         requiresSudo: true,
       });
 
-      // 4. Apply dependencies
+      // 5. Apply dependencies
       console.log("→ Checking dependencies...");
       const depsResult = await applyDependencies(
         connection,
@@ -426,13 +441,26 @@ export async function deployCommand(args: string[]): Promise<void> {
         }
       }
 
-      // 5. Merge and write secrets
+      // 6. Link preserved items
+      const preservePaths = config.preserve ?? [];
+      if (preservePaths.length > 0) {
+        console.log("→ Linking preserved files...");
+        await linkPreservedItems(
+          connection,
+          config.app,
+          environment,
+          releaseDir,
+          preservePaths
+        );
+      }
+
+      // 7. Merge and write secrets to release directory
       console.log("→ Loading secrets...");
       const secretsResult = await mergeAndWriteSecrets(
         connection,
         config.app,
         environment,
-        deploymentDir
+        releaseDir
       );
 
       if (!secretsResult.hasSecrets) {
@@ -444,7 +472,7 @@ export async function deployCommand(args: string[]): Promise<void> {
         );
       }
 
-      // 6. Resolve/assign port
+      // 8. Resolve/assign port
       console.log("→ Assigning port...");
       const portResult = await resolvePort(connection, state, environment);
 
@@ -456,14 +484,16 @@ export async function deployCommand(args: string[]): Promise<void> {
 
       console.log(`  Using port ${portResult.port}`);
 
-      // 7. Run deploy script
+      // 9. Run deploy script in release directory
       console.log("→ Running deploy script...");
+      const prodCurrentDir = getCurrentWorkingDirectory(config.app, "production");
       const tossEnvVars: Record<string, string> = {
         TOSS_ENV: environment,
         TOSS_APP: config.app,
         TOSS_PORT: portResult.port.toString(),
-        TOSS_RELEASE_DIR: deploymentDir,
-        TOSS_PROD_DIR: getDeploymentDirectory(config.app, "production"),
+        TOSS_RELEASE_DIR: releaseDir,
+        TOSS_ENV_DIR: envDir,
+        TOSS_PROD_DIR: prodCurrentDir,
       };
       const deployEnvironmentVariables: Record<string, string> = {
         ...secretsResult.mergedSecrets,
@@ -472,17 +502,21 @@ export async function deployCommand(args: string[]): Promise<void> {
 
       await runDeployScript(
         connection,
-        deploymentDir,
+        releaseDir,
         config.deployScript,
         deployEnvironmentVariables
       );
 
-      // 8. Create/update systemd service
+      // 10. Atomically switch current symlink to new release
+      console.log("→ Activating release...");
+      await switchCurrentSymlink(connection, config.app, environment, releaseDir);
+
+      // 11. Create/update systemd service (working directory is current/)
       console.log("→ Configuring service...");
       await createOrUpdateService(connection, {
         appName: config.app,
         environment,
-        workingDirectory: deploymentDir,
+        workingDirectory: currentDir,
         startCommand: config.startCommand,
         envFilePath,
       });
@@ -490,11 +524,11 @@ export async function deployCommand(args: string[]): Promise<void> {
       // Enable for auto-start on boot
       await enableService(connection, config.app, environment);
 
-      // 9. Start or restart service
+      // 12. Start or restart service
       console.log("→ Starting service...");
       await startOrRestartService(connection, config.app, environment);
 
-      // 10. Update Caddy config
+      // 13. Update Caddy config
       console.log("→ Configuring reverse proxy...");
 
       // Re-read state to ensure we have latest deployments
@@ -511,12 +545,13 @@ export async function deployCommand(args: string[]): Promise<void> {
         console.log("  The app is running but may not be publicly accessible.");
       }
 
-      // 11. Print success
+      // 14. Print success
       const url = getDeploymentUrl(environment, serverHost, config.domain);
       const serviceName = getServiceName(config.app, environment);
 
       console.log("");
       console.log(`✓ Deployed to ${url}`);
+      console.log(`  Release: ${releaseTimestamp}`);
       console.log("");
       console.log("Useful commands:");
       console.log(`  toss logs ${environment}      View logs`);

@@ -1,0 +1,248 @@
+import type { ServerConnection } from "./config.ts";
+import {
+  exec,
+  mkdirRemote,
+  remoteExists,
+  removeRemote,
+  escapeShellArg,
+} from "./ssh.ts";
+import {
+  getEnvDirectory,
+  getReleasesDirectory,
+  getPreserveDirectory,
+  getCurrentSymlinkPath,
+} from "./state.ts";
+
+/**
+ * Generates a timestamp string for a release directory name.
+ * Format: YYYYMMDD_HHMMSS (e.g., 20260130_143022)
+ */
+export function generateReleaseTimestamp(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  const seconds = String(now.getSeconds()).padStart(2, "0");
+
+  return `${year}${month}${day}_${hours}${minutes}${seconds}`;
+}
+
+/**
+ * Gets the full path to a release directory.
+ */
+export function getReleaseDirectory(
+  appName: string,
+  environment: string,
+  timestamp: string
+): string {
+  return `${getReleasesDirectory(appName, environment)}/${timestamp}`;
+}
+
+/**
+ * Ensures the release infrastructure directories exist.
+ * Creates releases/ and preserve/ directories if they don't exist.
+ */
+export async function ensureReleaseDirectories(
+  connection: ServerConnection,
+  appName: string,
+  environment: string
+): Promise<void> {
+  const releasesDir = getReleasesDirectory(appName, environment);
+  const preserveDir = getPreserveDirectory(appName, environment);
+
+  await mkdirRemote(connection, releasesDir, { requiresSudo: true });
+  await mkdirRemote(connection, preserveDir, { requiresSudo: true });
+}
+
+/**
+ * Creates symlinks for preserved items in a release directory.
+ *
+ * For each item in preservePaths:
+ * 1. Ensure the item exists in preserve/ directory (create empty if missing)
+ * 2. Remove any existing file/dir at that path in the release
+ * 3. Create a symlink from release/<item> → envDir/preserve/<item>
+ */
+export async function linkPreservedItems(
+  connection: ServerConnection,
+  appName: string,
+  environment: string,
+  releaseDir: string,
+  preservePaths: string[]
+): Promise<void> {
+  if (preservePaths.length === 0) {
+    return;
+  }
+
+  const preserveDir = getPreserveDirectory(appName, environment);
+
+  for (const itemPath of preservePaths) {
+    const preserveItemPath = `${preserveDir}/${itemPath}`;
+    const releaseItemPath = `${releaseDir}/${itemPath}`;
+
+    // Check if item exists in preserve directory
+    const existsInPreserve = await remoteExists(connection, preserveItemPath, {
+      requiresSudo: true,
+    });
+
+    if (!existsInPreserve) {
+      // Check if the path ends with / or is clearly meant to be a directory
+      // by looking at whether it contains a file extension or not
+      const seemsLikeDir = !itemPath.includes(".") || itemPath.endsWith("/");
+
+      if (seemsLikeDir) {
+        // Create empty directory in preserve
+        await mkdirRemote(connection, preserveItemPath, { requiresSudo: true });
+      } else {
+        // Create empty file in preserve
+        // First ensure parent directory exists
+        const parentDir = preserveItemPath.substring(
+          0,
+          preserveItemPath.lastIndexOf("/")
+        );
+        if (parentDir && parentDir !== preserveDir) {
+          await mkdirRemote(connection, parentDir, { requiresSudo: true });
+        }
+        const result = await exec(
+          connection,
+          `touch ${escapeShellArg(preserveItemPath)}`,
+          { requiresSudo: true }
+        );
+        if (result.exitCode !== 0) {
+          throw new Error(
+            `Failed to create preserved file ${preserveItemPath}: ${result.stderr}`
+          );
+        }
+      }
+    }
+
+    // Ensure parent directory exists in release for the symlink
+    const releaseItemParent = releaseItemPath.substring(
+      0,
+      releaseItemPath.lastIndexOf("/")
+    );
+    if (releaseItemParent && releaseItemParent !== releaseDir) {
+      await mkdirRemote(connection, releaseItemParent, { requiresSudo: true });
+    }
+
+    // Remove any existing file/directory at the release path
+    // (this handles the case where rsync brought in a file that should be preserved)
+    const existsInRelease = await remoteExists(connection, releaseItemPath, {
+      requiresSudo: true,
+    });
+    if (existsInRelease) {
+      await removeRemote(connection, releaseItemPath, true, {
+        requiresSudo: true,
+      });
+    }
+
+    // Create symlink from release to preserve
+    // Using relative path would be nice but absolute is simpler and always works
+    const result = await exec(
+      connection,
+      `ln -s ${escapeShellArg(preserveItemPath)} ${escapeShellArg(releaseItemPath)}`,
+      { requiresSudo: true }
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(
+        `Failed to create symlink for preserved item ${itemPath}: ${result.stderr}`
+      );
+    }
+  }
+}
+
+/**
+ * Atomically switches the current symlink to point to a new release.
+ * Uses ln -sfn which atomically replaces the symlink target.
+ */
+export async function switchCurrentSymlink(
+  connection: ServerConnection,
+  appName: string,
+  environment: string,
+  releaseDir: string
+): Promise<void> {
+  const currentPath = getCurrentSymlinkPath(appName, environment);
+
+  // ln -sfn atomically replaces the symlink target
+  // -s = create symbolic link
+  // -f = remove existing destination files
+  // -n = treat destination as a normal file if it's a symlink to a directory
+  const result = await exec(
+    connection,
+    `ln -sfn ${escapeShellArg(releaseDir)} ${escapeShellArg(currentPath)}`,
+    { requiresSudo: true }
+  );
+
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `Failed to switch current symlink to ${releaseDir}: ${result.stderr}`
+    );
+  }
+}
+
+/**
+ * Gets the target of the current symlink (the active release directory).
+ * Returns null if the symlink doesn't exist.
+ */
+export async function getCurrentReleaseTarget(
+  connection: ServerConnection,
+  appName: string,
+  environment: string
+): Promise<string | null> {
+  const currentPath = getCurrentSymlinkPath(appName, environment);
+
+  const exists = await remoteExists(connection, currentPath, {
+    requiresSudo: true,
+  });
+
+  if (!exists) {
+    return null;
+  }
+
+  const result = await exec(
+    connection,
+    `readlink -f ${escapeShellArg(currentPath)}`,
+    { requiresSudo: true }
+  );
+
+  if (result.exitCode !== 0) {
+    return null;
+  }
+
+  return result.stdout.trim();
+}
+
+/**
+ * Lists all release directories for an environment, sorted by name (oldest first).
+ */
+export async function listReleases(
+  connection: ServerConnection,
+  appName: string,
+  environment: string
+): Promise<string[]> {
+  const releasesDir = getReleasesDirectory(appName, environment);
+
+  const exists = await remoteExists(connection, releasesDir, {
+    requiresSudo: true,
+  });
+
+  if (!exists) {
+    return [];
+  }
+
+  const result = await exec(
+    connection,
+    `ls -1 ${escapeShellArg(releasesDir)} 2>/dev/null | sort`,
+    { requiresSudo: true }
+  );
+
+  if (result.exitCode !== 0 || !result.stdout.trim()) {
+    return [];
+  }
+
+  return result.stdout
+    .trim()
+    .split("\n")
+    .filter((name) => name.length > 0);
+}
