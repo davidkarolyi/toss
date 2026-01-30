@@ -246,3 +246,97 @@ export async function listReleases(
     .split("\n")
     .filter((name) => name.length > 0);
 }
+
+/** Default number of releases to keep for production */
+export const DEFAULT_KEEP_RELEASES = 3;
+
+/**
+ * Result of release cleanup operation
+ */
+export interface CleanupResult {
+  /** Number of releases that were deleted */
+  deleted: number;
+  /** Names of releases that were deleted */
+  deletedReleases: string[];
+  /** Number of releases remaining */
+  remaining: number;
+}
+
+/**
+ * Cleans up old releases after a successful deploy.
+ *
+ * For production environments:
+ *   - Keeps the most recent N releases (where N is keepReleases, defaulting to 3)
+ *   - Never deletes the current active release
+ *
+ * For preview environments:
+ *   - Only keeps the current release (previews are temporary and don't need rollback)
+ *
+ * @param connection SSH connection to the server
+ * @param appName The application name
+ * @param environment The environment (e.g., "production", "pr-42")
+ * @param keepReleases Number of releases to keep (only used for production)
+ * @returns Information about what was cleaned up
+ */
+export async function cleanupOldReleases(
+  connection: ServerConnection,
+  appName: string,
+  environment: string,
+  keepReleases: number = DEFAULT_KEEP_RELEASES
+): Promise<CleanupResult> {
+  const releasesDir = getReleasesDirectory(appName, environment);
+
+  // Get all releases (sorted oldest first)
+  const allReleases = await listReleases(connection, appName, environment);
+
+  if (allReleases.length === 0) {
+    return { deleted: 0, deletedReleases: [], remaining: 0 };
+  }
+
+  // Get current release target to ensure we never delete it
+  const currentTarget = await getCurrentReleaseTarget(
+    connection,
+    appName,
+    environment
+  );
+
+  // Extract just the timestamp from the full path
+  const currentReleaseName = currentTarget
+    ? currentTarget.split("/").pop()
+    : null;
+
+  // Determine how many to keep based on environment type
+  const isProduction = environment === "production";
+  const releasesToKeep = isProduction ? keepReleases : 1;
+
+  // Find releases to delete
+  // Releases are sorted oldest first, so we delete from the beginning
+  const releasesToDelete: string[] = [];
+
+  // Keep the newest N releases
+  const keepCount = Math.min(releasesToKeep, allReleases.length);
+  const candidatesForDeletion = allReleases.slice(
+    0,
+    allReleases.length - keepCount
+  );
+
+  for (const release of candidatesForDeletion) {
+    // Safety check: never delete the current release even if math says we should
+    if (release === currentReleaseName) {
+      continue;
+    }
+    releasesToDelete.push(release);
+  }
+
+  // Delete old releases
+  for (const release of releasesToDelete) {
+    const releasePath = `${releasesDir}/${release}`;
+    await removeRemote(connection, releasePath, true, { requiresSudo: true });
+  }
+
+  return {
+    deleted: releasesToDelete.length,
+    deletedReleases: releasesToDelete,
+    remaining: allReleases.length - releasesToDelete.length,
+  };
+}

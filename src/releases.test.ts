@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   generateReleaseTimestamp,
   getReleaseDirectory,
+  DEFAULT_KEEP_RELEASES,
 } from "./releases.ts";
 import {
   getEnvDirectory,
@@ -94,5 +95,12 @@ describe("getCurrentWorkingDirectory", () => {
   test("returns the current working directory (same as symlink)", () => {
     expect(getCurrentWorkingDirectory("myapp", "production")).toBe("/srv/myapp/production/current");
     expect(getCurrentWorkingDirectory("myapp", "pr-42")).toBe("/srv/myapp/pr-42/current");
+  });
+});
+
+describe("DEFAULT_KEEP_RELEASES", () => {
+  test("has a sensible default value", () => {
+    expect(DEFAULT_KEEP_RELEASES).toBe(3);
+    expect(DEFAULT_KEEP_RELEASES).toBeGreaterThan(0);
   });
 });

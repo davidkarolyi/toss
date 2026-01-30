@@ -95,7 +95,7 @@ The command must be idempotent and resilient to interruptions. Re-running after 
 
     Migration: for first deploy after this change, if `/srv/<app>/<env>` contains legacy files without `releases/`, just create the new structure and deploy a fresh release; do not attempt to migrate old files.
 
-[ ] Implement release cleanup after successful deploys. For production, keep the most recent N releases where N is `keepReleases` from the config (defaulting to 3). For preview environments, only keep the current release since they're temporary and don't need rollback capability. Cleanup happens after a successful deploy, after the symlink has been switched and the service restarted.
+[x] Implement release cleanup after successful deploys. For production, keep the most recent N releases where N is `keepReleases` from the config (defaulting to 3). For preview environments, only keep the current release since they're temporary and don't need rollback capability. Cleanup happens after a successful deploy, after the symlink has been switched and the service restarted.
     - List `releases/`, sort by name (timestamps sort chronologically).
     - Identify the current release target and never delete it.
     - For production: delete oldest entries beyond N.

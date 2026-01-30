@@ -22,6 +22,8 @@ import {
   ensureReleaseDirectories,
   linkPreservedItems,
   switchCurrentSymlink,
+  cleanupOldReleases,
+  DEFAULT_KEEP_RELEASES,
 } from "../releases.ts";
 import { updateCaddyConfig, getDeploymentUrl } from "../caddy.ts";
 import { applyDependencies, formatDependencyError } from "../dependencies.ts";
@@ -545,7 +547,23 @@ export async function deployCommand(args: string[]): Promise<void> {
         console.log("  The app is running but may not be publicly accessible.");
       }
 
-      // 14. Print success
+      // 14. Clean up old releases
+      console.log("→ Cleaning up old releases...");
+      const keepReleases = config.keepReleases ?? DEFAULT_KEEP_RELEASES;
+      const cleanupResult = await cleanupOldReleases(
+        connection,
+        config.app,
+        environment,
+        keepReleases
+      );
+
+      if (cleanupResult.deleted > 0) {
+        console.log(
+          `  Removed ${cleanupResult.deleted} old release${cleanupResult.deleted === 1 ? "" : "s"}`
+        );
+      }
+
+      // 15. Print success
       const url = getDeploymentUrl(environment, serverHost, config.domain);
       const serviceName = getServiceName(config.app, environment);
 
