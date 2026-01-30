@@ -4,7 +4,7 @@ import { removeService, getServiceName } from "../systemd.ts";
 import {
   readState,
   writeState,
-  getDeploymentDirectory,
+  getEnvDirectory,
   getSecretsOverridesDirectory,
 } from "../state.ts";
 import { updateCaddyConfig } from "../caddy.ts";
@@ -89,7 +89,7 @@ export async function removeCommand(args: string[]): Promise<void> {
   const connection = parseServerString(config.server);
   const serverHost = extractHostFromServer(config.server);
 
-  const deploymentDir = getDeploymentDirectory(config.app, environment);
+  const envDir = getEnvDirectory(config.app, environment);
   const overridesDir = getSecretsOverridesDirectory(config.app);
   const overridePath = `${overridesDir}/${environment}.env`;
   const serviceName = getServiceName(config.app, environment);
@@ -102,7 +102,7 @@ export async function removeCommand(args: string[]): Promise<void> {
 
   if (!deploymentExists) {
     // Check if the directory exists on disk even without state entry
-    const dirExists = await remoteExists(connection, deploymentDir, {
+    const dirExists = await remoteExists(connection, envDir, {
       requiresSudo: true,
     });
     if (!dirExists) {
@@ -124,12 +124,12 @@ export async function removeCommand(args: string[]): Promise<void> {
   console.log(`  Removed service: ${serviceName}`);
   removedItems.push(`Systemd service: ${serviceName}`);
 
-  // 2. Remove deployment directory
-  console.log("→ Removing deployment directory...");
-  if (await remoteExists(connection, deploymentDir, { requiresSudo: true })) {
-    await removeRemote(connection, deploymentDir, true, { requiresSudo: true });
-    console.log(`  Removed: ${deploymentDir}`);
-    removedItems.push(`Deployment directory: ${deploymentDir}`);
+  // 2. Remove environment directory (includes releases/, preserve/, current)
+  console.log("→ Removing environment directory...");
+  if (await remoteExists(connection, envDir, { requiresSudo: true })) {
+    await removeRemote(connection, envDir, true, { requiresSudo: true });
+    console.log(`  Removed: ${envDir}`);
+    removedItems.push(`Environment directory: ${envDir}`);
   } else {
     console.log("  Directory already removed");
   }

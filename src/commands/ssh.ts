@@ -1,6 +1,7 @@
 import { loadConfig, parseServerString } from "../config.ts";
-import { openInteractiveSession } from "../ssh.ts";
+import { openInteractiveSession, remoteExists } from "../ssh.ts";
 import { validateEnvironmentNameOrThrow } from "../environment.ts";
+import { getEnvDirectory, getCurrentSymlinkPath } from "../state.ts";
 
 /**
  * Parses the command line arguments for the ssh command.
@@ -58,7 +59,7 @@ Arguments:
 Options:
   -h, --help          Show this help message
 
-The session starts in the deployment directory (/srv/<app>/<env>/).
+The session starts in the current release directory (/srv/<app>/<env>/current/).
 
 Examples:
   toss ssh production    SSH into production deployment
@@ -83,13 +84,44 @@ Examples:
 
   const { config } = await loadConfig();
   const connection = parseServerString(config.server);
-  const deploymentDir = `/srv/${config.app}/${parsed.environment}`;
+
+  // Prefer the current symlink (release-based structure), fallback to env dir for legacy deployments
+  const envDir = getEnvDirectory(config.app, parsed.environment);
+  const currentPath = getCurrentSymlinkPath(config.app, parsed.environment);
+
+  // Check if the current symlink exists (indicates release-based structure)
+  const currentExists = await remoteExists(connection, currentPath, {
+    requiresSudo: true,
+  });
+
+  let targetDir: string;
+  if (currentExists) {
+    targetDir = currentPath;
+  } else {
+    // Fallback to env directory for legacy deployments
+    const envDirExists = await remoteExists(connection, envDir, {
+      requiresSudo: true,
+    });
+    if (envDirExists) {
+      console.log(
+        `⚠ Warning: No current symlink found. Using legacy directory structure.`
+      );
+      targetDir = envDir;
+    } else {
+      console.error(
+        `Error: Environment "${parsed.environment}" not found on server.`
+      );
+      console.error("");
+      console.error("Run 'toss list' to see deployed environments.");
+      process.exit(1);
+    }
+  }
 
   // Build the initial command to cd to the deployment directory and start a shell
   // We use 'cd <dir> && exec $SHELL' to start an interactive shell in the right directory
-  const initialCommand = `cd ${deploymentDir} && exec $SHELL -l`;
+  const initialCommand = `cd ${targetDir} && exec $SHELL -l`;
 
-  console.log(`Connecting to ${parsed.environment} at ${deploymentDir}...`);
+  console.log(`Connecting to ${parsed.environment} at ${targetDir}...`);
 
   const exitCode = await openInteractiveSession(connection, initialCommand);
 

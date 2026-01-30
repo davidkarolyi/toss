@@ -4,33 +4,30 @@
 
 CLI foundation is complete with all major commands implemented:
 - **`toss deploy`** - full deploy flow with release-based directory structure + cleanup
-- **`toss remove`** - environment teardown
+- **`toss remove`** - environment teardown (updated for release structure)
 - **`toss list`** - compact deployment table
 - **`toss status`** - comprehensive project summary
 - **`toss logs`** - tail journalctl logs with `-n` support
-- **`toss ssh`** - interactive shell to deployment dir
+- **`toss ssh`** - interactive shell to deployment dir (updated for release structure)
 
 **All commands with environment names have validation** (deploy, remove, logs, ssh).
 
 ## What Just Happened
 
-Implemented release cleanup after successful deploys:
+Updated ssh and remove commands for the new release-based directory structure:
 
-**New code in `src/releases.ts`:**
-- `DEFAULT_KEEP_RELEASES = 3` constant
-- `CleanupResult` interface for tracking what was deleted
-- `cleanupOldReleases()` function that:
-  - For production: keeps N releases (configurable via `keepReleases` config)
-  - For previews: keeps only 1 release (current)
-  - Never deletes the current active release (safety check)
-  - Deletes oldest releases first (timestamps sort chronologically)
+**`toss ssh <env>` changes:**
+- Now lands in `/srv/<app>/<env>/current` (the active release symlink)
+- Fallback to `/srv/<app>/<env>` for legacy deployments with a warning
+- Updated help text to reference `current/`
+- Checks if `current` symlink exists, falls back gracefully
 
-**Updated `src/commands/deploy.ts`:**
-- Added cleanup step after Caddy config, before success message
-- Uses `config.keepReleases ?? DEFAULT_KEEP_RELEASES`
-- Logs how many releases were removed
+**`toss remove <env>` changes:**
+- Now uses `getEnvDirectory` instead of deprecated `getDeploymentDirectory`
+- Removes the entire env directory (including `releases/`, `preserve/`, `current`)
+- Updated logging to say "Environment directory" instead of "Deployment directory"
 
-**Tests:** 324 passing
+**Tests:** 328 passing (4 new tests added)
 
 ## Structure
 
@@ -48,21 +45,20 @@ src/
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
 ├── environment.ts           # Environment name validation
-├── releases.ts              # Release management (UPDATED)
-├── *.test.ts                # Tests (324 passing)
+├── releases.ts              # Release management
+├── *.test.ts                # Tests (328 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
-    ├── deploy.ts            # Deploy command (UPDATED)
-    ├── remove.ts            # Remove command
+    ├── deploy.ts            # Deploy command
+    ├── remove.ts            # Remove command (UPDATED)
     ├── list.ts              # List command
     ├── status.ts            # Status command
     ├── logs.ts              # Logs command
-    └── ssh.ts               # SSH command
+    └── ssh.ts               # SSH command (UPDATED)
 ```
 
 ## What's Next
 
-Remaining backlog items:
-1. **Update ssh/remove commands** - land in `current/`, remove whole env dir
-2. **Update CLAUDE.md** - document new structure
+One backlog item remaining:
+1. **Update CLAUDE.md** - document new release structure, preserve/keepReleases config, TOSS_ENV_DIR variable

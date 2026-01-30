@@ -101,7 +101,7 @@ The command must be idempotent and resilient to interruptions. Re-running after 
     - For production: delete oldest entries beyond N.
     - For previews: delete everything except current.
 
-[ ] Update the ssh and remove commands for the new release structure.
+[x] Update the ssh and remove commands for the new release structure.
     - `toss ssh <env>` should land in `/srv/<app>/<env>/current` (fallback to env dir with a warning if `current` doesn't exist).
     - `toss remove <env>` should remove the whole `/srv/<app>/<env>/` directory (including `releases/`, `preserve/`, and `current`) and still clean up overrides + state entries.
     - Update help text to reference `current/` as the working directory.

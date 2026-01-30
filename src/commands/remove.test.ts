@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { getServiceName } from "../systemd.ts";
-import { getDeploymentDirectory, getSecretsOverridesDirectory } from "../state.ts";
+import { getEnvDirectory, getSecretsOverridesDirectory } from "../state.ts";
 
 /**
  * Tests for the remove command logic and path construction.
@@ -9,11 +9,23 @@ import { getDeploymentDirectory, getSecretsOverridesDirectory } from "../state.t
  */
 
 describe("remove command path construction", () => {
-  test("constructs deployment directory path correctly", () => {
+  test("constructs environment directory path correctly", () => {
     const appName = "myapp";
     const environment = "pr-42";
-    const expectedPath = getDeploymentDirectory(appName, environment);
+    const expectedPath = getEnvDirectory(appName, environment);
     expect(expectedPath).toBe("/srv/myapp/pr-42");
+  });
+
+  test("environment directory contains releases, preserve, and current", () => {
+    // The env directory structure includes:
+    // /srv/<app>/<env>/
+    //   ├── releases/     <- timestamped release directories
+    //   ├── preserve/     <- persistent files
+    //   └── current       <- symlink to active release
+    const envDir = getEnvDirectory("myapp", "pr-42");
+    expect(`${envDir}/releases`).toBe("/srv/myapp/pr-42/releases");
+    expect(`${envDir}/preserve`).toBe("/srv/myapp/pr-42/preserve");
+    expect(`${envDir}/current`).toBe("/srv/myapp/pr-42/current");
   });
 
   test("constructs secrets overrides path correctly", () => {
@@ -149,11 +161,11 @@ describe("removed items tracking", () => {
     expect(removedItems).toContain("Systemd service: toss-myapp-pr-42");
   });
 
-  test("tracks deployment directory removal", () => {
+  test("tracks environment directory removal (includes releases, preserve, current)", () => {
     const removedItems: string[] = [];
-    const deploymentDir = "/srv/myapp/pr-42";
-    removedItems.push(`Deployment directory: ${deploymentDir}`);
-    expect(removedItems).toContain("Deployment directory: /srv/myapp/pr-42");
+    const envDir = "/srv/myapp/pr-42";
+    removedItems.push(`Environment directory: ${envDir}`);
+    expect(removedItems).toContain("Environment directory: /srv/myapp/pr-42");
   });
 
   test("tracks secret overrides removal", () => {

@@ -85,59 +85,73 @@ describe("ssh command argument parsing logic", () => {
   });
 });
 
-describe("ssh command deployment directory construction", () => {
-  function buildDeploymentDir(appName: string, environment: string): string {
+describe("ssh command directory construction", () => {
+  function buildEnvDir(appName: string, environment: string): string {
     return `/srv/${appName}/${environment}`;
   }
 
-  test("constructs path for production", () => {
-    const path = buildDeploymentDir("myapp", "production");
-    expect(path).toBe("/srv/myapp/production");
+  function buildCurrentPath(appName: string, environment: string): string {
+    return `${buildEnvDir(appName, environment)}/current`;
+  }
+
+  test("constructs current path for production", () => {
+    const path = buildCurrentPath("myapp", "production");
+    expect(path).toBe("/srv/myapp/production/current");
   });
 
-  test("constructs path for preview environment", () => {
-    const path = buildDeploymentDir("myapp", "pr-42");
-    expect(path).toBe("/srv/myapp/pr-42");
+  test("constructs current path for preview environment", () => {
+    const path = buildCurrentPath("myapp", "pr-42");
+    expect(path).toBe("/srv/myapp/pr-42/current");
   });
 
-  test("constructs path for staging", () => {
-    const path = buildDeploymentDir("myapp", "staging");
-    expect(path).toBe("/srv/myapp/staging");
+  test("constructs current path for staging", () => {
+    const path = buildCurrentPath("myapp", "staging");
+    expect(path).toBe("/srv/myapp/staging/current");
   });
 
-  test("constructs path with different app name", () => {
-    const path = buildDeploymentDir("webapp", "production");
-    expect(path).toBe("/srv/webapp/production");
+  test("constructs current path with different app name", () => {
+    const path = buildCurrentPath("webapp", "production");
+    expect(path).toBe("/srv/webapp/production/current");
   });
 
-  test("constructs path with hyphenated app name", () => {
-    const path = buildDeploymentDir("my-app", "pr-123");
-    expect(path).toBe("/srv/my-app/pr-123");
+  test("constructs current path with hyphenated app name", () => {
+    const path = buildCurrentPath("my-app", "pr-123");
+    expect(path).toBe("/srv/my-app/pr-123/current");
+  });
+
+  test("fallback env dir for legacy deployments", () => {
+    const envDir = buildEnvDir("myapp", "production");
+    expect(envDir).toBe("/srv/myapp/production");
   });
 });
 
 describe("ssh command initial shell command construction", () => {
-  function buildInitialCommand(deploymentDir: string): string {
-    return `cd ${deploymentDir} && exec $SHELL -l`;
+  function buildInitialCommand(targetDir: string): string {
+    return `cd ${targetDir} && exec $SHELL -l`;
   }
 
-  test("builds command to cd and start shell", () => {
+  test("builds command to cd and start shell for current symlink", () => {
+    const command = buildInitialCommand("/srv/myapp/production/current");
+    expect(command).toBe("cd /srv/myapp/production/current && exec $SHELL -l");
+  });
+
+  test("builds command for legacy directory fallback", () => {
     const command = buildInitialCommand("/srv/myapp/production");
     expect(command).toBe("cd /srv/myapp/production && exec $SHELL -l");
   });
 
   test("command uses login shell (-l flag)", () => {
-    const command = buildInitialCommand("/srv/myapp/production");
+    const command = buildInitialCommand("/srv/myapp/production/current");
     expect(command).toContain("-l");
   });
 
   test("command uses exec to replace ssh process", () => {
-    const command = buildInitialCommand("/srv/myapp/production");
+    const command = buildInitialCommand("/srv/myapp/production/current");
     expect(command).toContain("exec $SHELL");
   });
 
   test("command changes directory first", () => {
-    const command = buildInitialCommand("/srv/myapp/production");
+    const command = buildInitialCommand("/srv/myapp/production/current");
     expect(command).toMatch(/^cd/);
   });
 });
@@ -147,6 +161,13 @@ describe("ssh command help text structure", () => {
     const expectedUsage = "Usage: toss ssh <env>";
     expect(expectedUsage).toContain("toss ssh");
     expect(expectedUsage).toContain("<env>");
+  });
+
+  test("help text references current directory", () => {
+    const helpText =
+      "The session starts in the current release directory (/srv/<app>/<env>/current/).";
+    expect(helpText).toContain("current");
+    expect(helpText).toContain("/current/");
   });
 
   test("help text includes examples", () => {
