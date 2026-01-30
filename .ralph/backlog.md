@@ -63,7 +63,7 @@ The command must be idempotent and resilient to interruptions. Re-running after 
 
 [x] Implement GitHub Actions workflow generation. This happens during `toss init` when the user opts in. The workflow should deploy on pushes to main for production, deploy on pull requests for preview environments (using `pr-<number>` naming), and remove preview environments when PRs are closed. Always include the comment step for preview URLs—use the domain if configured, otherwise construct sslip.io URLs.
 
-[ ] Add two new optional config fields for release-based deployments. The first is `preserve` which is an array of file or folder names that should persist across releases (things like `data.sqlite` or `uploads` that you don't want wiped on each deploy). The second is `keepReleases` which is a number saying how many old releases to keep around for production. Validation rules:
+[x] Add two new optional config fields for release-based deployments. The first is `preserve` which is an array of file or folder names that should persist across releases (things like `data.sqlite` or `uploads` that you don't want wiped on each deploy). The second is `keepReleases` which is a number saying how many old releases to keep around for production. Validation rules:
     - `preserve` must be an array of non-empty strings; allow simple relative paths (e.g. `uploads`, `data/db.sqlite`, `var/cache`) but reject absolute paths and `..` segments.
     - `keepReleases` must be a positive integer.
     - If `keepReleases` isn't specified, default to 3 (production only).

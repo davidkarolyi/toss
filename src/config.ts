@@ -20,6 +20,8 @@ export interface TossConfig {
   deployScript: string[];
   domain?: string;
   dependencies?: Record<string, string>;
+  preserve?: string[];
+  keepReleases?: number;
 }
 
 /**
@@ -32,6 +34,63 @@ export interface LoadedConfig {
 }
 
 const CONFIG_FILENAME = "toss.json";
+
+/**
+ * Result of preserve path validation
+ */
+export interface PreservePathValidation {
+  valid: boolean;
+  error?: string;
+}
+
+/**
+ * Validates a single preserve path entry.
+ * Rules:
+ *   - Must be a non-empty string
+ *   - Cannot be an absolute path (starting with /)
+ *   - Cannot contain .. segments
+ *
+ * @param path The path to validate
+ * @returns Validation result with error message if invalid
+ */
+export function validatePreservePath(path: string): PreservePathValidation {
+  if (typeof path !== "string" || path.trim() === "") {
+    return { valid: false, error: "must be a non-empty string" };
+  }
+
+  const trimmed = path.trim();
+
+  if (trimmed.startsWith("/")) {
+    return {
+      valid: false,
+      error: `cannot be an absolute path: "${trimmed}"`,
+    };
+  }
+
+  const segments = trimmed.split("/");
+  if (segments.some((seg) => seg === "..")) {
+    return {
+      valid: false,
+      error: `cannot contain ".." segments: "${trimmed}"`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Validates a keepReleases value.
+ *
+ * @param value The value to validate
+ * @returns true if valid (positive integer), false otherwise
+ */
+export function isValidKeepReleases(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1
+  );
+}
 
 /**
  * Searches for toss.json starting from the current directory and walking up to parent directories.
@@ -130,6 +189,27 @@ function validateConfig(rawConfig: unknown, configPath: string): TossConfig {
     }
   }
 
+  // Optional: preserve (array of relative paths)
+  if (config.preserve !== undefined) {
+    if (!Array.isArray(config.preserve)) {
+      errors.push('"preserve" must be an array of strings');
+    } else {
+      for (let i = 0; i < config.preserve.length; i++) {
+        const result = validatePreservePath(config.preserve[i]);
+        if (!result.valid) {
+          errors.push(`"preserve[${i}]" ${result.error}`);
+        }
+      }
+    }
+  }
+
+  // Optional: keepReleases (positive integer)
+  if (config.keepReleases !== undefined) {
+    if (!isValidKeepReleases(config.keepReleases)) {
+      errors.push('"keepReleases" must be a positive integer');
+    }
+  }
+
   if (errors.length > 0) {
     throw new Error(
       `Invalid ${configPath}:\n  - ${errors.join("\n  - ")}`
@@ -143,6 +223,8 @@ function validateConfig(rawConfig: unknown, configPath: string): TossConfig {
     deployScript: config.deployScript as string[],
     domain: config.domain ? (config.domain as string).trim() : undefined,
     dependencies: config.dependencies as Record<string, string> | undefined,
+    preserve: config.preserve as string[] | undefined,
+    keepReleases: config.keepReleases as number | undefined,
   };
 }
 
