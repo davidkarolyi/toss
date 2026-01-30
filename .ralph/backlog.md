@@ -62,3 +62,48 @@ The command must be idempotent and resilient to interruptions. Re-running after 
 [x] Implement environment name validation. Environment names must be lowercase, contain only `a-z`, `0-9`, and `-`, start with a letter, and be at most 63 characters (DNS label safe). The name `production` is reserved for the production environment. Validate early in every command that accepts an environment name and provide a clear error message with the rules if validation fails.
 
 [x] Implement GitHub Actions workflow generation. This happens during `toss init` when the user opts in. The workflow should deploy on pushes to main for production, deploy on pull requests for preview environments (using `pr-<number>` naming), and remove preview environments when PRs are closed. Always include the comment step for preview URLs—use the domain if configured, otherwise construct sslip.io URLs.
+
+[ ] Add two new optional config fields for release-based deployments. The first is `preserve` which is an array of file or folder names that should persist across releases (things like `data.sqlite` or `uploads` that you don't want wiped on each deploy). The second is `keepReleases` which is a number saying how many old releases to keep around for production. Validation rules:
+    - `preserve` must be an array of non-empty strings; allow simple relative paths (e.g. `uploads`, `data/db.sqlite`, `var/cache`) but reject absolute paths and `..` segments.
+    - `keepReleases` must be a positive integer.
+    - If `keepReleases` isn't specified, default to 3 (production only).
+    - If both fields are missing, releases are still used (feature is always-on).
+    - If `preserve` is provided, store as-is in config and use during deploy.
+
+[ ] Refactor the deploy command to use a release-based directory structure. Right now deploys go straight into `/srv/<app>/<env>/` which means each deploy overwrites the previous one. We want to switch to timestamped releases with an atomic symlink swap. The new structure should be:
+    - `/srv/<app>/<env>/releases/<timestamp>/` for each release
+    - `/srv/<app>/<env>/current` symlink to the active release
+    - `/srv/<app>/<env>/preserve/` directory for persistent files
+
+    Deployment flow changes (apply to all environments, production + previews):
+    1. Compute `envDir = /srv/<app>/<env>` and ensure `releases/` + `preserve/` exist.
+    2. Create a new release dir with a timestamp name like `20260130_143022`.
+    3. `rsync` repo into the new release dir (same excludes).
+    4. For each `preserve` item:
+       - Ensure the item exists in `preserve/` (create empty file/dir if missing).
+       - If the release already has a file/dir with the same path, remove it and replace with a symlink.
+       - Create a symlink from `release/<item>` → `envDir/preserve/<item>`.
+    5. Merge secrets and write `.env` into the new release dir.
+    6. Run deployScript in the new release dir.
+    7. Atomically switch `current` to the new release (create temp symlink + rename, or `ln -sfn`).
+    8. Systemd working directory should be `current/` so it always points to active release.
+
+    Environment variables:
+    - `TOSS_RELEASE_DIR` = full path to the timestamped release dir
+    - `TOSS_ENV_DIR` = `/srv/<app>/<env>`
+    - `TOSS_PROD_DIR` should now point to `/srv/<app>/production/current`
+
+    Migration: for first deploy after this change, if `/srv/<app>/<env>` contains legacy files without `releases/`, just create the new structure and deploy a fresh release; do not attempt to migrate old files.
+
+[ ] Implement release cleanup after successful deploys. For production, keep the most recent N releases where N is `keepReleases` from the config (defaulting to 3). For preview environments, only keep the current release since they're temporary and don't need rollback capability. Cleanup happens after a successful deploy, after the symlink has been switched and the service restarted.
+    - List `releases/`, sort by name (timestamps sort chronologically).
+    - Identify the current release target and never delete it.
+    - For production: delete oldest entries beyond N.
+    - For previews: delete everything except current.
+
+[ ] Update the ssh and remove commands for the new release structure.
+    - `toss ssh <env>` should land in `/srv/<app>/<env>/current` (fallback to env dir with a warning if `current` doesn't exist).
+    - `toss remove <env>` should remove the whole `/srv/<app>/<env>/` directory (including `releases/`, `preserve/`, and `current`) and still clean up overrides + state entries.
+    - Update help text to reference `current/` as the working directory.
+
+[ ] Update CLAUDE.md to document the release-based deployment structure. Add the new `preserve` and `keepReleases` config fields, show the new directory layout with `releases/` + `current` + `preserve/`, document the new `TOSS_ENV_DIR` environment variable, and explain that old releases are kept for production but not for previews. Update examples for `TOSS_RELEASE_DIR` and `TOSS_PROD_DIR` to point at `current/` where relevant.
