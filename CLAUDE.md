@@ -76,7 +76,7 @@ The quick rollback is instant but requires SSH access. The full rollback creates
     "nodejs": "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs",
     "bun": "curl -fsSL https://bun.sh/install | bash"
   },
-  "preserve": ["uploads", "data.sqlite"],
+  "persistentDirs": ["./data", "uploads"],
   "keepReleases": 5
 }
 ```
@@ -88,7 +88,7 @@ Fields:
 - `startCommand` (required): command to start the app (used in systemd unit file)
 - `deployScript` (required): array of commands run on every deploy
 - `dependencies` (optional): named install commands that run once per server (toss tracks what was applied)
-- `preserve` (optional): array of file/folder paths that persist across releases (e.g., `uploads`, `data.sqlite`)
+- `persistentDirs` (optional): array of directories that persist across releases (e.g., `data`, `uploads`) — legacy `preserve` is still accepted
 - `keepReleases` (optional): number of old releases to keep for production (default: 3); previews always keep only the current release
 
 `app` and `domain` are independent; toss does not derive one from the other.
@@ -119,9 +119,9 @@ There is no local `.toss/` folder; all config lives in `toss.json`. Server state
 │   │   ├── 20260130_120000/
 │   │   └── 20260130_140000/
 │   ├── current -> releases/20260130_140000  # symlink to active release
-│   └── preserve/           # persistent files across releases
+│   └── preserve/           # persistent directories across releases
 │       ├── uploads/
-│       └── data.sqlite
+│       └── data/
 ├── pr-42/                  # preview environment
 │   ├── releases/
 │   │   └── 20260130_150000/
@@ -137,7 +137,7 @@ There is no local `.toss/` folder; all config lives in `toss.json`. Server state
 All toss-managed state lives in `.toss/`. Each environment has:
 - `releases/` - timestamped release directories (e.g., `20260130_143022`)
 - `current` - symlink pointing to the active release
-- `preserve/` - files that persist across deployments (configured via `preserve` in toss.json)
+- `preserve/` - directories that persist across deployments (configured via `persistentDirs` in toss.json)
 
 The `current` symlink is swapped atomically on each deploy, so the transition between releases is instantaneous.
 
@@ -182,27 +182,28 @@ The optional `dependencies` config field controls server-wide setup:
 toss records which dependencies have already been applied on the server, so they
 do not re-run on every deploy.
 
-## Preserved Files
+## Persistent Directories
 
-The `preserve` config field specifies files and directories that should persist across releases. On each deploy:
+The `persistentDirs` config field specifies directories that should persist across releases. On each deploy:
 
 1. toss creates the release directory with a timestamp (e.g., `20260130_143022`)
-2. For each path in `preserve`:
-   - If it doesn't exist in `preserve/`, creates an empty file/directory
+2. For each path in `persistentDirs`:
+   - Ensures the directory exists under `preserve/`
    - Creates a symlink from the release to `preserve/` (e.g., `releases/20260130_143022/uploads → ../preserve/uploads`)
 
-This keeps user uploads, SQLite databases, or other persistent data safe across deploys.
+This keeps user uploads, SQLite databases, or other persistent data safe across deploys. Put files (like `data/db.sqlite`) inside one of these directories so all SQLite sidecar files stay together.
 
 ```json
 {
-  "preserve": ["uploads", "data.sqlite", "var/cache"]
+  "persistentDirs": ["./data", "uploads", "var/cache"]
 }
 ```
 
-Rules for preserve paths:
+Rules for persistentDirs:
 - Must be relative paths (no leading `/`)
 - Cannot contain `..` segments
 - Nested paths are supported (e.g., `var/cache`)
+Legacy aliases `preserve` and `persistantDirs` are accepted but deprecated.
 
 ## Release Cleanup
 
@@ -487,7 +488,7 @@ Without a custom domain:
 2. Create a new timestamped release directory (e.g., `releases/20260130_143022`)
 3. `rsync` files to the new release directory
 4. Apply any missing server dependencies
-5. Create symlinks for preserved files (linking release → `preserve/`)
+5. Create symlinks for persistent directories (linking release → `preserve/`)
 6. Merge secrets (base + overrides) into release directory as `.env`
 7. Run `deployScript` commands in the release directory (aborts on first failure)
 8. Atomically switch `current` symlink to the new release

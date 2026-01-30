@@ -20,7 +20,7 @@ import {
   generateReleaseTimestamp,
   getReleaseDirectory,
   ensureReleaseDirectories,
-  linkPreservedItems,
+  linkPersistentDirs,
   switchCurrentSymlink,
   cleanupOldReleases,
   DEFAULT_KEEP_RELEASES,
@@ -443,16 +443,16 @@ export async function deployCommand(args: string[]): Promise<void> {
         }
       }
 
-      // 6. Link preserved items
-      const preservePaths = config.preserve ?? [];
-      if (preservePaths.length > 0) {
-        console.log("→ Linking preserved files...");
-        await linkPreservedItems(
+      // 6. Link persistent directories
+      const persistentDirs = config.persistentDirs ?? [];
+      if (persistentDirs.length > 0) {
+        console.log("→ Linking persistent directories...");
+        await linkPersistentDirs(
           connection,
           config.app,
           environment,
           releaseDir,
-          preservePaths
+          persistentDirs
         );
       }
 

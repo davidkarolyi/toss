@@ -96,7 +96,7 @@ export function getReleasesDirectory(appName: string, environment: string): stri
 
 /**
  * Gets the preserve directory for a specific environment.
- * Contains persistent files that survive across releases.
+ * Contains persistent directories that survive across releases.
  */
 export function getPreserveDirectory(appName: string, environment: string): string {
   return `${getEnvDirectory(appName, environment)}/preserve`;

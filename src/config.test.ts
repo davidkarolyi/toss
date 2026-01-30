@@ -2,7 +2,7 @@ import { describe, test, expect } from "bun:test";
 import {
   parseServerString,
   extractHostFromServer,
-  validatePreservePath,
+  validatePersistentDirPath,
   isValidKeepReleases,
 } from "./config.ts";
 
@@ -112,56 +112,102 @@ describe("extractHostFromServer", () => {
   });
 });
 
-describe("validatePreservePath", () => {
+describe("validatePersistentDirPath", () => {
   describe("valid paths", () => {
-    test("accepts simple file names", () => {
-      expect(validatePreservePath("uploads")).toEqual({ valid: true });
-      expect(validatePreservePath("data.sqlite")).toEqual({ valid: true });
-      expect(validatePreservePath(".env")).toEqual({ valid: true });
+    test("accepts simple directory names", () => {
+      expect(validatePersistentDirPath("uploads")).toEqual({
+        valid: true,
+        normalized: "uploads",
+      });
+      expect(validatePersistentDirPath("data.sqlite")).toEqual({
+        valid: true,
+        normalized: "data.sqlite",
+      });
+      expect(validatePersistentDirPath(".env")).toEqual({
+        valid: true,
+        normalized: ".env",
+      });
     });
 
     test("accepts simple relative paths", () => {
-      expect(validatePreservePath("data/db.sqlite")).toEqual({ valid: true });
-      expect(validatePreservePath("var/cache")).toEqual({ valid: true });
-      expect(validatePreservePath("storage/uploads/images")).toEqual({ valid: true });
+      expect(validatePersistentDirPath("data/db.sqlite")).toEqual({
+        valid: true,
+        normalized: "data/db.sqlite",
+      });
+      expect(validatePersistentDirPath("var/cache")).toEqual({
+        valid: true,
+        normalized: "var/cache",
+      });
+      expect(validatePersistentDirPath("storage/uploads/images")).toEqual({
+        valid: true,
+        normalized: "storage/uploads/images",
+      });
     });
 
-    test("accepts paths with single dots", () => {
-      expect(validatePreservePath("./uploads")).toEqual({ valid: true });
-      expect(validatePreservePath("data/./cache")).toEqual({ valid: true });
+    test("normalizes leading ./ and trailing slashes", () => {
+      expect(validatePersistentDirPath("./uploads")).toEqual({
+        valid: true,
+        normalized: "uploads",
+      });
+      expect(validatePersistentDirPath("data/cache/")).toEqual({
+        valid: true,
+        normalized: "data/cache",
+      });
+    });
+
+    test("accepts paths with single dots in the middle", () => {
+      expect(validatePersistentDirPath("data/./cache")).toEqual({
+        valid: true,
+        normalized: "data/./cache",
+      });
     });
 
     test("accepts paths with numbers and special characters", () => {
-      expect(validatePreservePath("data-2024")).toEqual({ valid: true });
-      expect(validatePreservePath("cache_v2")).toEqual({ valid: true });
-      expect(validatePreservePath("file.tar.gz")).toEqual({ valid: true });
+      expect(validatePersistentDirPath("data-2024")).toEqual({
+        valid: true,
+        normalized: "data-2024",
+      });
+      expect(validatePersistentDirPath("cache_v2")).toEqual({
+        valid: true,
+        normalized: "cache_v2",
+      });
+      expect(validatePersistentDirPath("file.tar.gz")).toEqual({
+        valid: true,
+        normalized: "file.tar.gz",
+      });
     });
   });
 
   describe("invalid paths - empty", () => {
     test("rejects empty string", () => {
-      const result = validatePreservePath("");
+      const result = validatePersistentDirPath("");
       expect(result.valid).toBe(false);
       expect(result.error).toContain("non-empty string");
     });
 
     test("rejects whitespace only", () => {
-      const result = validatePreservePath("   ");
+      const result = validatePersistentDirPath("   ");
       expect(result.valid).toBe(false);
       expect(result.error).toContain("non-empty string");
+    });
+
+    test("rejects dot path", () => {
+      const result = validatePersistentDirPath("./");
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain('cannot be "."');
     });
   });
 
   describe("invalid paths - absolute", () => {
     test("rejects paths starting with /", () => {
-      const result = validatePreservePath("/uploads");
+      const result = validatePersistentDirPath("/uploads");
       expect(result.valid).toBe(false);
       expect(result.error).toContain("absolute path");
       expect(result.error).toContain("/uploads");
     });
 
     test("rejects full absolute paths", () => {
-      const result = validatePreservePath("/var/data/uploads");
+      const result = validatePersistentDirPath("/var/data/uploads");
       expect(result.valid).toBe(false);
       expect(result.error).toContain("absolute path");
     });
@@ -169,33 +215,39 @@ describe("validatePreservePath", () => {
 
   describe("invalid paths - parent directory traversal", () => {
     test("rejects paths starting with ..", () => {
-      const result = validatePreservePath("../uploads");
+      const result = validatePersistentDirPath("../uploads");
       expect(result.valid).toBe(false);
       expect(result.error).toContain('".."');
     });
 
     test("rejects paths with .. in the middle", () => {
-      const result = validatePreservePath("data/../uploads");
+      const result = validatePersistentDirPath("data/../uploads");
       expect(result.valid).toBe(false);
       expect(result.error).toContain('".."');
     });
 
     test("rejects paths ending with ..", () => {
-      const result = validatePreservePath("data/..");
+      const result = validatePersistentDirPath("data/..");
       expect(result.valid).toBe(false);
       expect(result.error).toContain('".."');
     });
 
     test("rejects multiple .. segments", () => {
-      const result = validatePreservePath("../../etc/passwd");
+      const result = validatePersistentDirPath("../../etc/passwd");
       expect(result.valid).toBe(false);
       expect(result.error).toContain('".."');
     });
 
     test("accepts paths with .. as part of filename", () => {
       // "file..txt" is valid - the dots are part of the filename, not a segment
-      expect(validatePreservePath("file..txt")).toEqual({ valid: true });
-      expect(validatePreservePath("...")).toEqual({ valid: true });
+      expect(validatePersistentDirPath("file..txt")).toEqual({
+        valid: true,
+        normalized: "file..txt",
+      });
+      expect(validatePersistentDirPath("...")).toEqual({
+        valid: true,
+        normalized: "...",
+      });
     });
   });
 });

@@ -57,65 +57,32 @@ export async function ensureReleaseDirectories(
 }
 
 /**
- * Creates symlinks for preserved items in a release directory.
+ * Creates symlinks for persistent directories in a release directory.
  *
- * For each item in preservePaths:
- * 1. Ensure the item exists in preserve/ directory (create empty if missing)
+ * For each item in persistentDirs:
+ * 1. Ensure the directory exists in preserve/ (create if missing)
  * 2. Remove any existing file/dir at that path in the release
  * 3. Create a symlink from release/<item> → envDir/preserve/<item>
  */
-export async function linkPreservedItems(
+export async function linkPersistentDirs(
   connection: ServerConnection,
   appName: string,
   environment: string,
   releaseDir: string,
-  preservePaths: string[]
+  persistentDirs: string[]
 ): Promise<void> {
-  if (preservePaths.length === 0) {
+  if (persistentDirs.length === 0) {
     return;
   }
 
   const preserveDir = getPreserveDirectory(appName, environment);
 
-  for (const itemPath of preservePaths) {
-    const preserveItemPath = `${preserveDir}/${itemPath}`;
-    const releaseItemPath = `${releaseDir}/${itemPath}`;
+  for (const dirPath of persistentDirs) {
+    const preserveItemPath = `${preserveDir}/${dirPath}`;
+    const releaseItemPath = `${releaseDir}/${dirPath}`;
 
-    // Check if item exists in preserve directory
-    const existsInPreserve = await remoteExists(connection, preserveItemPath, {
-      requiresSudo: true,
-    });
-
-    if (!existsInPreserve) {
-      // Check if the path ends with / or is clearly meant to be a directory
-      // by looking at whether it contains a file extension or not
-      const seemsLikeDir = !itemPath.includes(".") || itemPath.endsWith("/");
-
-      if (seemsLikeDir) {
-        // Create empty directory in preserve
-        await mkdirRemote(connection, preserveItemPath, { requiresSudo: true });
-      } else {
-        // Create empty file in preserve
-        // First ensure parent directory exists
-        const parentDir = preserveItemPath.substring(
-          0,
-          preserveItemPath.lastIndexOf("/")
-        );
-        if (parentDir && parentDir !== preserveDir) {
-          await mkdirRemote(connection, parentDir, { requiresSudo: true });
-        }
-        const result = await exec(
-          connection,
-          `touch ${escapeShellArg(preserveItemPath)}`,
-          { requiresSudo: true }
-        );
-        if (result.exitCode !== 0) {
-          throw new Error(
-            `Failed to create preserved file ${preserveItemPath}: ${result.stderr}`
-          );
-        }
-      }
-    }
+    // Ensure directory exists in preserve (treat all entries as directories)
+    await mkdirRemote(connection, preserveItemPath, { requiresSudo: true });
 
     // Ensure parent directory exists in release for the symlink
     const releaseItemParent = releaseItemPath.substring(
@@ -146,7 +113,7 @@ export async function linkPreservedItems(
     );
     if (result.exitCode !== 0) {
       throw new Error(
-        `Failed to create symlink for preserved item ${itemPath}: ${result.stderr}`
+        `Failed to create symlink for persistent directory ${dirPath}: ${result.stderr}`
       );
     }
   }

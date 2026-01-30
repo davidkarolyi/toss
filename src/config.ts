@@ -20,7 +20,7 @@ export interface TossConfig {
   deployScript: string[];
   domain?: string;
   dependencies?: Record<string, string>;
-  preserve?: string[];
+  persistentDirs?: string[];
   keepReleases?: number;
 }
 
@@ -36,29 +36,45 @@ export interface LoadedConfig {
 const CONFIG_FILENAME = "toss.json";
 
 /**
- * Result of preserve path validation
+ * Result of persistent directory path validation
  */
-export interface PreservePathValidation {
+export interface PersistentDirValidation {
   valid: boolean;
   error?: string;
+  normalized?: string;
 }
 
 /**
- * Validates a single preserve path entry.
+ * Validates and normalizes a single persistent directory path entry.
  * Rules:
  *   - Must be a non-empty string
  *   - Cannot be an absolute path (starting with /)
  *   - Cannot contain .. segments
+ *   - Normalizes leading "./" and trailing slashes
  *
  * @param path The path to validate
- * @returns Validation result with error message if invalid
+ * @returns Validation result with error message if invalid and normalized path if valid
  */
-export function validatePreservePath(path: string): PreservePathValidation {
+export function validatePersistentDirPath(path: string): PersistentDirValidation {
   if (typeof path !== "string" || path.trim() === "") {
     return { valid: false, error: "must be a non-empty string" };
   }
 
-  const trimmed = path.trim();
+  let trimmed = path.trim();
+
+  if (trimmed === "." || trimmed === "./") {
+    return { valid: false, error: 'cannot be "."' };
+  }
+
+  if (trimmed.startsWith("./")) {
+    trimmed = trimmed.slice(2);
+  }
+
+  trimmed = trimmed.replace(/\/+$/, "");
+
+  if (!trimmed) {
+    return { valid: false, error: "must be a non-empty string" };
+  }
 
   if (trimmed.startsWith("/")) {
     return {
@@ -75,7 +91,7 @@ export function validatePreservePath(path: string): PreservePathValidation {
     };
   }
 
-  return { valid: true };
+  return { valid: true, normalized: trimmed };
 }
 
 /**
@@ -189,15 +205,57 @@ function validateConfig(rawConfig: unknown, configPath: string): TossConfig {
     }
   }
 
-  // Optional: preserve (array of relative paths)
-  if (config.preserve !== undefined) {
-    if (!Array.isArray(config.preserve)) {
-      errors.push('"preserve" must be an array of strings');
+  // Optional: persistentDirs (array of relative directory paths)
+  const hasPersistentDirs = Object.prototype.hasOwnProperty.call(
+    config,
+    "persistentDirs"
+  );
+  const hasPersistantDirs = Object.prototype.hasOwnProperty.call(
+    config,
+    "persistantDirs"
+  );
+  const hasPreserve = Object.prototype.hasOwnProperty.call(config, "preserve");
+
+  const persistentDirsKeys = [
+    hasPersistentDirs ? "persistentDirs" : null,
+    hasPersistantDirs ? "persistantDirs" : null,
+    hasPreserve ? "preserve" : null,
+  ].filter((key): key is string => key !== null);
+
+  if (persistentDirsKeys.length > 1) {
+    errors.push(
+      'Use only one of "persistentDirs", "persistantDirs" (legacy alias), or "preserve" (legacy alias)'
+    );
+  }
+
+  const persistentDirsKey =
+    persistentDirsKeys.length === 1 ? persistentDirsKeys[0] : null;
+  const persistentDirsValue =
+    persistentDirsKey === "persistentDirs"
+      ? (config.persistentDirs as unknown)
+      : persistentDirsKey === "persistantDirs"
+        ? (config.persistantDirs as unknown)
+        : persistentDirsKey === "preserve"
+          ? (config.preserve as unknown)
+        : undefined;
+
+  let normalizedPersistentDirs: string[] | undefined;
+  if (persistentDirsValue !== undefined) {
+    if (!Array.isArray(persistentDirsValue)) {
+      errors.push(`"${persistentDirsKey}" must be an array of strings`);
     } else {
-      for (let i = 0; i < config.preserve.length; i++) {
-        const result = validatePreservePath(config.preserve[i]);
+      normalizedPersistentDirs = [];
+      for (let i = 0; i < persistentDirsValue.length; i++) {
+        const value = persistentDirsValue[i];
+        if (typeof value !== "string") {
+          errors.push(`"${persistentDirsKey}[${i}]" must be a string`);
+          continue;
+        }
+        const result = validatePersistentDirPath(value);
         if (!result.valid) {
-          errors.push(`"preserve[${i}]" ${result.error}`);
+          errors.push(`"${persistentDirsKey}[${i}]" ${result.error}`);
+        } else if (result.normalized) {
+          normalizedPersistentDirs.push(result.normalized);
         }
       }
     }
@@ -223,7 +281,7 @@ function validateConfig(rawConfig: unknown, configPath: string): TossConfig {
     deployScript: config.deployScript as string[],
     domain: config.domain ? (config.domain as string).trim() : undefined,
     dependencies: config.dependencies as Record<string, string> | undefined,
-    preserve: config.preserve as string[] | undefined,
+    persistentDirs: normalizedPersistentDirs,
     keepReleases: config.keepReleases as number | undefined,
   };
 }
