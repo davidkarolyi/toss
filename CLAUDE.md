@@ -29,7 +29,7 @@ toss list                              # list running deployments
 toss status                            # status summary (config + deployments + overrides)
 toss logs <env>                        # tail logs for environment
 toss logs <env> -n 100                 # show last 100 lines
-toss ssh <env>                         # SSH into server, cd to environment directory
+toss ssh <env>                         # SSH into server, cd to current release directory
 toss secrets push <env> --file <file>  # push secrets (env: production or preview)
 toss secrets pull <env> --file <file>  # pull secrets from VPS
 ```
@@ -38,13 +38,25 @@ All commands require explicit arguments—no defaults. This keeps deployments pr
 
 ### Rollbacks
 
-toss deploy always deploys your current working directory.
-To roll back, check out the previous commit locally and deploy again:
+toss keeps old releases on the server for production environments (default: 3 releases, configurable via `keepReleases`).
 
+**Quick rollback** (instant, uses existing release on server):
+```bash
+# SSH into the server and manually switch the symlink
+ssh root@64.23.123.45
+cd /srv/myapp/production/releases
+ls -la  # see available releases
+ln -sfn /srv/myapp/production/releases/20260130_100000 /srv/myapp/production/current
+systemctl restart toss-myapp-production
+```
+
+**Full rollback** (deploys from your local repo):
 ```bash
 git checkout abc123f
 toss deploy production
 ```
+
+The quick rollback is instant but requires SSH access. The full rollback creates a new release from your local code.
 
 ## Config File
 
@@ -63,7 +75,9 @@ toss deploy production
   "dependencies": {
     "nodejs": "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt-get install -y nodejs",
     "bun": "curl -fsSL https://bun.sh/install | bash"
-  }
+  },
+  "preserve": ["uploads", "data.sqlite"],
+  "keepReleases": 5
 }
 ```
 
@@ -74,6 +88,8 @@ Fields:
 - `startCommand` (required): command to start the app (used in systemd unit file)
 - `deployScript` (required): array of commands run on every deploy
 - `dependencies` (optional): named install commands that run once per server (toss tracks what was applied)
+- `preserve` (optional): array of file/folder paths that persist across releases (e.g., `uploads`, `data.sqlite`)
+- `keepReleases` (optional): number of old releases to keep for production (default: 3); previews always keep only the current release
 
 `app` and `domain` are independent; toss does not derive one from the other.
 There is no local `.toss/` folder; all config lives in `toss.json`. Server state is stored in `/srv/<app>/.toss/`.
@@ -97,15 +113,33 @@ There is no local `.toss/` folder; all config lives in `toss.json`. Server state
 │       └── overrides/
 │           ├── pr-42.env   # per-environment overrides (merged with base)
 │           └── pr-123.env
-├── production/             # production deployment
-│   └── (app files)
-├── pr-42/                  # preview deployment
-│   └── (app files)
+├── production/             # production environment
+│   ├── releases/           # timestamped release directories
+│   │   ├── 20260130_100000/
+│   │   ├── 20260130_120000/
+│   │   └── 20260130_140000/
+│   ├── current -> releases/20260130_140000  # symlink to active release
+│   └── preserve/           # persistent files across releases
+│       ├── uploads/
+│       └── data.sqlite
+├── pr-42/                  # preview environment
+│   ├── releases/
+│   │   └── 20260130_150000/
+│   ├── current -> releases/20260130_150000
+│   └── preserve/
 └── pr-123/                 # another preview
-    └── (app files)
+    ├── releases/
+    │   └── 20260130_160000/
+    ├── current -> releases/20260130_160000
+    └── preserve/
 ```
 
-All toss-managed state lives in `.toss/`. Deployment directories contain only app files.
+All toss-managed state lives in `.toss/`. Each environment has:
+- `releases/` - timestamped release directories (e.g., `20260130_143022`)
+- `current` - symlink pointing to the active release
+- `preserve/` - files that persist across deployments (configured via `preserve` in toss.json)
+
+The `current` symlink is swapped atomically on each deploy, so the transition between releases is instantaneous.
 
 ### State File
 
@@ -148,19 +182,53 @@ The optional `dependencies` config field controls server-wide setup:
 toss records which dependencies have already been applied on the server, so they
 do not re-run on every deploy.
 
+## Preserved Files
+
+The `preserve` config field specifies files and directories that should persist across releases. On each deploy:
+
+1. toss creates the release directory with a timestamp (e.g., `20260130_143022`)
+2. For each path in `preserve`:
+   - If it doesn't exist in `preserve/`, creates an empty file/directory
+   - Creates a symlink from the release to `preserve/` (e.g., `releases/20260130_143022/uploads → ../preserve/uploads`)
+
+This keeps user uploads, SQLite databases, or other persistent data safe across deploys.
+
+```json
+{
+  "preserve": ["uploads", "data.sqlite", "var/cache"]
+}
+```
+
+Rules for preserve paths:
+- Must be relative paths (no leading `/`)
+- Cannot contain `..` segments
+- Nested paths are supported (e.g., `var/cache`)
+
+## Release Cleanup
+
+After each successful deploy, toss cleans up old releases:
+
+- **Production**: Keeps the most recent N releases (where N is `keepReleases`, default 3). This allows quick rollbacks by manually switching the `current` symlink.
+- **Previews**: Only keeps the current release. Preview environments are temporary and don't need rollback capability.
+
+Old releases are deleted only after the new release is fully active (symlink switched, service restarted).
+
 ## Environment Variables
 
 Available in `deployScript` commands (secrets are also injected):
 
-| Variable           | Description                | Example                 |
-| ------------------ | -------------------------- | ----------------------- |
-| `TOSS_ENV`         | Environment name           | `production`, `pr-42`   |
-| `TOSS_APP`         | App name from config       | `myapp`                 |
-| `TOSS_PORT`        | Assigned port              | `3000`, `3001`          |
-| `TOSS_RELEASE_DIR` | This release's directory   | `/srv/myapp/pr-42`      |
-| `TOSS_PROD_DIR`    | Production directory       | `/srv/myapp/production` |
+| Variable           | Description                         | Example                                    |
+| ------------------ | ----------------------------------- | ------------------------------------------ |
+| `TOSS_ENV`         | Environment name                    | `production`, `pr-42`                      |
+| `TOSS_APP`         | App name from config                | `myapp`                                    |
+| `TOSS_PORT`        | Assigned port                       | `3000`, `3001`                             |
+| `TOSS_RELEASE_DIR` | This release's timestamped dir      | `/srv/myapp/pr-42/releases/20260130_143022`|
+| `TOSS_ENV_DIR`     | Environment's base directory        | `/srv/myapp/pr-42`                         |
+| `TOSS_PROD_DIR`    | Production's current directory      | `/srv/myapp/production/current`            |
 
 User secrets from the secrets file are also injected into the environment.
+
+Note: `TOSS_RELEASE_DIR` points to the actual timestamped release directory being deployed, while `TOSS_ENV_DIR` points to the environment's base directory (containing `releases/`, `current`, and `preserve/`). `TOSS_PROD_DIR` always points to production's `current` symlink, useful for referencing production assets from preview environments.
 
 ## Port Assignment
 
@@ -235,8 +303,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/srv/myapp/production
-EnvironmentFile=/srv/myapp/production/.env
+WorkingDirectory=/srv/myapp/production/current
+EnvironmentFile=/srv/myapp/production/current/.env
 ExecStart=npm start
 Restart=always
 RestartSec=5
@@ -245,7 +313,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-The `ExecStart` is derived from the `startCommand` in `toss.json`.
+The `ExecStart` is derived from the `startCommand` in `toss.json`. The `WorkingDirectory` points to `current/` (the symlink), so systemd always runs from the active release.
 
 ## Secrets Management
 
@@ -416,14 +484,18 @@ Without a custom domain:
 ### What Happens
 
 1. Acquire deployment lock (prevents concurrent deploys)
-2. `rsync` files to server (excluding node_modules, .git, gitignored files, etc.)
-3. Apply any missing server dependencies
-4. Merge secrets (base + overrides) into deployment directory as `.env`
-5. Run `deployScript` commands in the deployment directory (aborts on first failure)
-6. Generate/update systemd unit file, reload systemd, restart service
-7. Regenerate Caddy config and reload
-8. Release lock
-9. Print URL
+2. Create a new timestamped release directory (e.g., `releases/20260130_143022`)
+3. `rsync` files to the new release directory
+4. Apply any missing server dependencies
+5. Create symlinks for preserved files (linking release → `preserve/`)
+6. Merge secrets (base + overrides) into release directory as `.env`
+7. Run `deployScript` commands in the release directory (aborts on first failure)
+8. Atomically switch `current` symlink to the new release
+9. Generate/update systemd unit file, reload systemd, restart service
+10. Regenerate Caddy config and reload
+11. Clean up old releases (keep N for production, 1 for previews)
+12. Release lock
+13. Print URL
 
 ### Resiliency
 
@@ -596,6 +668,8 @@ Troubleshooting:
 State is derived from the server:
 
 - What envs exist? → Look at `/srv/myapp/*/` (excluding `.toss/`)
+- What releases exist? → Look at `/srv/myapp/<env>/releases/`
+- What's the active release? → Follow `/srv/myapp/<env>/current` symlink
 - What ports? → Read `.toss/state.json`
 - What dependencies applied? → Read `.toss/state.json`
 - What should be routed? → Generate Caddyfile from state
@@ -656,7 +730,7 @@ toss list                                  # see what's running
 toss status                                # status summary (includes overrides)
 toss logs production                       # stream logs
 toss logs pr-42 -n 100                     # last 100 lines
-toss ssh production                        # SSH into deployment dir
+toss ssh production                        # SSH into current release dir
 toss remove pr-42                          # remove preview
 toss deploy pr-42 -s DATABASE_URL=...      # deploy with override
 ```

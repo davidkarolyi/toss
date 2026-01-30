@@ -2,32 +2,46 @@
 
 ## Where We Are
 
-CLI foundation is complete with all major commands implemented:
-- **`toss deploy`** - full deploy flow with release-based directory structure + cleanup
-- **`toss remove`** - environment teardown (updated for release structure)
+**All backlog items complete!** The CLI is fully implemented with release-based deployments.
+
+### Commands
+- **`toss init`** - interactive setup wizard
+- **`toss deploy`** - full deploy flow with release-based structure + cleanup
+- **`toss remove`** - environment teardown
 - **`toss list`** - compact deployment table
 - **`toss status`** - comprehensive project summary
 - **`toss logs`** - tail journalctl logs with `-n` support
-- **`toss ssh`** - interactive shell to deployment dir (updated for release structure)
+- **`toss ssh`** - interactive shell to `current/` directory
+- **`toss secrets push/pull`** - secrets management
 
-**All commands with environment names have validation** (deploy, remove, logs, ssh).
+### Release-Based Structure
+Each environment now has:
+- `releases/` - timestamped directories (e.g., `20260130_143022`)
+- `current` - symlink to active release (atomically swapped)
+- `preserve/` - persistent files across releases
+
+### Config Fields
+- `preserve` - array of paths to persist across releases
+- `keepReleases` - number of old releases to keep (default 3, production only)
+
+### Environment Variables
+- `TOSS_RELEASE_DIR` = timestamped release dir being deployed
+- `TOSS_ENV_DIR` = environment base dir (`/srv/<app>/<env>`)
+- `TOSS_PROD_DIR` = production's current dir (`/srv/<app>/production/current`)
 
 ## What Just Happened
 
-Updated ssh and remove commands for the new release-based directory structure:
+Updated CLAUDE.md to document the release-based deployment structure:
+- Added `preserve` and `keepReleases` config fields with descriptions
+- Updated directory structure diagram to show `releases/`, `current`, `preserve/`
+- Added new sections: "Preserved Files" and "Release Cleanup"
+- Updated environment variables table with new `TOSS_ENV_DIR` and corrected paths
+- Updated systemd example to show `current/` in WorkingDirectory
+- Expanded rollback section to explain quick rollback via symlink switching
+- Updated "What Happens" deploy flow with release-based steps
+- Various comment updates for accuracy
 
-**`toss ssh <env>` changes:**
-- Now lands in `/srv/<app>/<env>/current` (the active release symlink)
-- Fallback to `/srv/<app>/<env>` for legacy deployments with a warning
-- Updated help text to reference `current/`
-- Checks if `current` symlink exists, falls back gracefully
-
-**`toss remove <env>` changes:**
-- Now uses `getEnvDirectory` instead of deprecated `getDeploymentDirectory`
-- Removes the entire env directory (including `releases/`, `preserve/`, `current`)
-- Updated logging to say "Environment directory" instead of "Deployment directory"
-
-**Tests:** 328 passing (4 new tests added)
+**Tests:** 328 passing
 
 ## Structure
 
@@ -45,20 +59,23 @@ src/
 ├── lock.ts                  # Deployment locking
 ├── ports.ts                 # Port assignment
 ├── environment.ts           # Environment name validation
-├── releases.ts              # Release management
+├── releases.ts              # Release management + cleanup
 ├── *.test.ts                # Tests (328 passing)
 └── commands/
     ├── init.ts              # Interactive setup wizard
     ├── secrets.ts           # Secrets push/pull
     ├── deploy.ts            # Deploy command
-    ├── remove.ts            # Remove command (UPDATED)
+    ├── remove.ts            # Remove command
     ├── list.ts              # List command
     ├── status.ts            # Status command
     ├── logs.ts              # Logs command
-    └── ssh.ts               # SSH command (UPDATED)
+    └── ssh.ts               # SSH command
 ```
 
 ## What's Next
 
-One backlog item remaining:
-1. **Update CLAUDE.md** - document new release structure, preserve/keepReleases config, TOSS_ENV_DIR variable
+Backlog is empty. Project is feature-complete for initial release. Possible future work:
+- `toss exec <command>` - run command on server
+- `toss doctor` - diagnose issues
+- Multiple apps per config
+- Monorepo support
