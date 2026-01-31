@@ -34,10 +34,10 @@ export function getAppDirectory(appName: string): string {
 }
 
 /**
- * Gets the path to the production secrets file
+ * Gets the path to the prod secrets file
  */
-export function getProductionSecretsPath(appName: string): string {
-  return `${getSecretsDirectory(appName)}/production.env`;
+export function getProdSecretsPath(appName: string): string {
+  return `${getSecretsDirectory(appName)}/prod.env`;
 }
 
 /**
@@ -163,7 +163,7 @@ export async function createAppDirectories(
  * Creates empty secrets files if they don't exist.
  *
  * Creates:
- * - /srv/<app>/.toss/secrets/production.env
+ * - /srv/<app>/.toss/secrets/prod.env
  * - /srv/<app>/.toss/secrets/preview.env
  */
 export async function createEmptySecretsFiles(
@@ -171,7 +171,7 @@ export async function createEmptySecretsFiles(
   appName: string
 ): Promise<ProvisioningResult> {
   const secretsFiles = [
-    getProductionSecretsPath(appName),
+    getProdSecretsPath(appName),
     getPreviewSecretsPath(appName),
   ];
 
@@ -185,7 +185,7 @@ export async function createEmptySecretsFiles(
         await writeRemoteFile(
           connection,
           filePath,
-          "# Secrets managed by toss\n# Push secrets with: toss secrets push <production|preview> --file .env.local\n",
+          "# Secrets managed by toss\n# Push secrets with: toss secrets push <prod|preview> --file .env.local\n",
           { requiresSudo: true }
         );
       }

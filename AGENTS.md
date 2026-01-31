@@ -22,38 +22,40 @@ curl -fsSL https://toss.dev/install.sh | sh
 
 ```bash
 toss init                              # interactive setup wizard (local + VPS)
-toss deploy <env>                      # deploy to environment (e.g., production, pr-42)
+toss deploy <env>                      # deploy to environment (e.g., prod, pr-42)
 toss deploy <env> -s KEY=VALUE         # deploy with per-environment secret override
-toss remove <env>                      # remove an environment (production cannot be removed)
+toss remove <env>                      # remove an environment (prod cannot be removed)
 toss list                              # list running deployments
 toss status                            # status summary (config + deployments + overrides)
 toss logs <env>                        # tail logs for environment
 toss logs <env> -n 100                 # show last 100 lines
+toss logs <env> --since "1h"           # logs since time (e.g., 1h, 2025-01-01)
+toss logs <env> -n 100 --follow        # show last 100 lines, then follow
 toss ssh <env>                         # SSH into server, cd to current release directory
-toss secrets push <env> --file <file>  # push secrets (env: production or preview)
-toss secrets pull <env> --file <file>  # pull secrets from VPS
+toss secrets push <env> --file <file>  # push secrets (env: prod or preview)
+toss secrets pull <env> [--file <file>]# pull secrets from VPS (defaults to .env.prod/.env.preview)
 ```
 
 All commands require explicit arguments—no defaults. This keeps deployments predictable.
 
 ### Rollbacks
 
-toss keeps old releases on the server for production environments (default: 3 releases, configurable via `keepReleases`).
+toss keeps old releases on the server for prod environments (default: 3 releases, configurable via `keepReleases`).
 
 **Quick rollback** (instant, uses existing release on server):
 ```bash
 # SSH into the server and manually switch the symlink
 ssh root@64.23.123.45
-cd /srv/myapp/production/releases
+cd /srv/myapp/prod/releases
 ls -la  # see available releases
-ln -sfn /srv/myapp/production/releases/20260130_100000 /srv/myapp/production/current
-systemctl restart toss-myapp-production
+ln -sfn /srv/myapp/prod/releases/20260130_100000 /srv/myapp/prod/current
+systemctl restart toss-myapp-prod
 ```
 
 **Full rollback** (deploys from your local repo):
 ```bash
 git checkout abc123f
-toss deploy production
+toss deploy prod
 ```
 
 The quick rollback is instant but requires SSH access. The full rollback creates a new release from your local code.
@@ -66,7 +68,7 @@ The quick rollback is instant but requires SSH access. The full rollback creates
 {
   "app": "myapp",
   "server": "root@64.23.123.45",
-  "domain": "myapp.com",
+  "domain": "example.com",
   "startCommand": "npm start",
   "deployScript": [
     "npm ci",
@@ -84,12 +86,12 @@ The quick rollback is instant but requires SSH access. The full rollback creates
 Fields:
 - `app` (required): app name (used for directories and service names)
 - `server` (required): SSH target (e.g., `root@64.23.123.45`, `root@64.23.123.45:2222`, or IPv6 `root@[::1]:2222`)
-- `domain` (optional): public domain; if omitted, toss uses sslip.io URLs (e.g., `production.64-23-123-45.sslip.io`)
+- `domain` (optional): public domain; if omitted, toss uses sslip.io URLs (e.g., `prod.myapp.64-23-123-45.sslip.io`)
 - `startCommand` (required): command to start the app (used in systemd unit file)
 - `deployScript` (required): array of commands run on every deploy
 - `dependencies` (optional): named install commands that run once per server (toss tracks what was applied)
 - `persistentDirs` (optional): array of directories that persist across releases (e.g., `data`, `uploads`) — legacy `preserve` is still accepted
-- `keepReleases` (optional): number of old releases to keep for production (default: 3); previews always keep only the current release
+- `keepReleases` (optional): number of old releases to keep for prod (default: 3); previews always keep only the current release
 
 `app` and `domain` are independent; toss does not derive one from the other.
 There is no local `.toss/` folder; all config lives in `toss.json`. Server state is stored in `/srv/<app>/.toss/`.
@@ -99,7 +101,8 @@ There is no local `.toss/` folder; all config lives in `toss.json`. Server state
 - Lowercase letters, numbers, and hyphens only (`a-z`, `0-9`, `-`)
 - Must start with a letter
 - Max 63 characters (DNS label safe)
-- `production` is reserved for the production environment
+- `prod` is reserved for the prod environment
+- `production` is not supported; use `prod`
 
 ## Directory Structure on Server
 
@@ -108,12 +111,12 @@ There is no local `.toss/` folder; all config lives in `toss.json`. Server state
 ├── .toss/
 │   ├── state.json          # ports, applied dependencies, lock, origin
 │   └── secrets/
-│       ├── production.env  # production secrets (base)
-│       ├── preview.env     # preview secrets (base, shared by all non-production)
+│       ├── prod.env  # prod secrets (base)
+│       ├── preview.env     # preview secrets (base, shared by all non-prod)
 │       └── overrides/
 │           ├── pr-42.env   # per-environment overrides (merged with base)
 │           └── pr-123.env
-├── production/             # production environment
+├── prod/             # prod environment
 │   ├── releases/           # timestamped release directories
 │   │   ├── 20260130_100000/
 │   │   ├── 20260130_120000/
@@ -149,7 +152,7 @@ The `current` symlink is swapped atomically on each deploy, so the transition be
 {
   "origin": "git@github.com:user/myapp.git",
   "deployments": {
-    "production": { "port": 3000 },
+    "prod": { "port": 3000 },
     "pr-42": { "port": 3001 }
   },
   "appliedDependencies": ["nodejs", "bun"],
@@ -209,7 +212,7 @@ Legacy aliases `preserve` and `persistantDirs` are accepted but deprecated.
 
 After each successful deploy, toss cleans up old releases:
 
-- **Production**: Keeps the most recent N releases (where N is `keepReleases`, default 3). This allows quick rollbacks by manually switching the `current` symlink.
+- **Prod**: Keeps the most recent N releases (where N is `keepReleases`, default 3). This allows quick rollbacks by manually switching the `current` symlink.
 - **Previews**: Only keeps the current release. Preview environments are temporary and don't need rollback capability.
 
 Old releases are deleted only after the new release is fully active (symlink switched, service restarted).
@@ -220,16 +223,16 @@ Available in `deployScript` commands (secrets are also injected):
 
 | Variable           | Description                         | Example                                    |
 | ------------------ | ----------------------------------- | ------------------------------------------ |
-| `TOSS_ENV`         | Environment name                    | `production`, `pr-42`                      |
+| `TOSS_ENV`         | Environment name                    | `prod`, `pr-42`                      |
 | `TOSS_APP`         | App name from config                | `myapp`                                    |
 | `TOSS_PORT`        | Assigned port                       | `3000`, `3001`                             |
 | `TOSS_RELEASE_DIR` | This release's timestamped dir      | `/srv/myapp/pr-42/releases/20260130_143022`|
 | `TOSS_ENV_DIR`     | Environment's base directory        | `/srv/myapp/pr-42`                         |
-| `TOSS_PROD_DIR`    | Production's current directory      | `/srv/myapp/production/current`            |
+| `TOSS_PROD_DIR`    | Prod's current directory            | `/srv/myapp/prod/current`            |
 
 User secrets from the secrets file are also injected into the environment.
 
-Note: `TOSS_RELEASE_DIR` points to the actual timestamped release directory being deployed, while `TOSS_ENV_DIR` points to the environment's base directory (containing `releases/`, `current`, and `preserve/`). `TOSS_PROD_DIR` always points to production's `current` symlink, useful for referencing production assets from preview environments.
+Note: `TOSS_RELEASE_DIR` points to the actual timestamped release directory being deployed, while `TOSS_ENV_DIR` points to the environment's base directory (containing `releases/`, `current`, and `preserve/`). `TOSS_PROD_DIR` always points to prod's `current` symlink, useful for referencing prod assets from preview environments.
 
 ## Port Assignment
 
@@ -241,7 +244,7 @@ Ports are assigned dynamically starting from 3000:
 4. Update `state.json` before starting systemd service
 
 ```
-toss-myapp-production → 3000
+toss-myapp-prod → 3000
 toss-myapp-pr-42      → 3001
 toss-myapp-pr-17      → 3002
 ```
@@ -291,7 +294,7 @@ systemd services are named using a prefix and delimiter:
 
 `toss-<app>-<env>`
 
-For example: `toss-myapp-production`, `toss-myapp-pr-42`
+For example: `toss-myapp-prod`, `toss-myapp-pr-42`
 
 Service unit files are stored at `/etc/systemd/system/toss-<app>-<env>.service`.
 
@@ -299,13 +302,13 @@ Service unit files are stored at `/etc/systemd/system/toss-<app>-<env>.service`.
 
 ```ini
 [Unit]
-Description=toss-myapp-production
+Description=toss-myapp-prod
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/srv/myapp/production/current
-EnvironmentFile=/srv/myapp/production/current/.env
+WorkingDirectory=/srv/myapp/prod/current
+EnvironmentFile=/srv/myapp/prod/current/.env
 ExecStart=npm start
 Restart=always
 RestartSec=5
@@ -324,8 +327,8 @@ Secrets are stored on the VPS, not in the repository.
 
 ```
 /srv/myapp/.toss/secrets/
-├── production.env    # base secrets for production
-├── preview.env       # base secrets for all non-production environments
+├── prod.env    # base secrets for prod
+├── preview.env       # base secrets for all non-prod environments
 └── overrides/
     ├── pr-42.env     # overrides for pr-42 (merged with preview.env)
     └── staging.env   # overrides for staging (merged with preview.env)
@@ -334,18 +337,19 @@ Secrets are stored on the VPS, not in the repository.
 ### Commands
 
 ```bash
-toss secrets push production --file .env.local   # push local file as production secrets
+toss secrets push prod --file .env.local   # push local file as prod secrets
 toss secrets push preview --file .env.local      # push local file as preview secrets
-toss secrets pull production --file .env         # download production secrets to local file
+toss secrets pull prod --file .env         # download prod secrets to local file
+toss secrets pull prod                      # defaults to .env.prod
 ```
 
 ### How It Works
 
-1. Push base secrets once per type using `toss secrets push` (production or preview)
+1. Push base secrets once per type using `toss secrets push` (prod or preview)
 2. Base secrets are stored at `/srv/<app>/.toss/secrets/<type>.env`
 3. On deploy, toss merges base secrets + environment overrides into `.env`
-   - Production uses `production.env` + `overrides/production.env` (if exists)
-   - Non-production uses `preview.env` + `overrides/<env>.env` (if exists)
+   - Production uses `prod.env` + `overrides/prod.env` (if exists)
+   - Non-prod uses `preview.env` + `overrides/<env>.env` (if exists)
    - Overrides take precedence over base secrets
 
 ### Per-Environment Overrides
@@ -381,7 +385,7 @@ toss deploy pr-42
 ### Team Workflow
 
 1. One team member pushes initial base secrets
-2. Other team members pull secrets if needed locally: `toss secrets pull`
+2. Other team members pull secrets if needed locally: `toss secrets pull` (defaults to .env.prod/.env.preview)
 3. Use `-s KEY=VALUE` on deploy for environment-specific overrides
 4. To update base secrets: edit locally, then push again
 
@@ -391,11 +395,11 @@ CI needs SSH access to the server. Secrets are already on the VPS, so no secret 
 
 ### Empty Secrets
 
-During init, toss creates empty `production.env` and `preview.env` files. If you deploy without pushing secrets, toss will warn you:
+During init, toss creates empty `prod.env` and `preview.env` files. If you deploy without pushing secrets, toss will warn you:
 
 ```
 ⚠ No secrets found. Your app will start with an empty .env file.
-  Push secrets with: toss secrets push production --file .env.local
+  Push secrets with: toss secrets push prod --file .env.local
 ```
 
 The deploy continues with an empty `.env` to avoid blocking CI pipelines.
@@ -415,7 +419,7 @@ Server (user@host): root@64.23.123.45
 Testing connection... ✓
 App name: myapp
 
-Domain (optional): myapp.com
+Domain (optional): example.com
 Start command: npm start
 Deploy commands (deployScript): npm ci && npm run build
 
@@ -440,8 +444,7 @@ Almost done!
 ──────────────────────────────────────
 
 1. If you set a domain, add DNS records:
-   A  myapp.com            → 64.23.123.45
-   A  *.preview.myapp.com  → 64.23.123.45
+   A  *.myapp.example.com  → 64.23.123.45
 
 2. Add GitHub secrets (Settings → Secrets → Actions):
    SSH_HOST     64.23.123.45
@@ -449,11 +452,11 @@ Almost done!
    SSH_KEY      (contents of ~/.ssh/id_ed25519)
 
 3. Push your secrets:
-   toss secrets push production --file .env.local
+   toss secrets push prod --file .env.local
    toss secrets push preview --file .env.local
 
 4. Deploy:
-   toss deploy production
+   toss deploy prod
 ```
 
 Note: VPS provisioning requires root or passwordless sudo access.
@@ -461,7 +464,7 @@ Note: VPS provisioning requires root or passwordless sudo access.
 ## Deploy Flow
 
 ```
-$ toss deploy production
+$ toss deploy prod
 
 → Acquiring lock...
 → Syncing files...
@@ -474,12 +477,12 @@ $ toss deploy production
 → Configuring Caddy...
 → Releasing lock...
 
-✓ https://myapp.com
+✓ https://prod.myapp.example.com
 ```
 
 Without a custom domain:
 ```
-✓ https://production.64-23-123-45.sslip.io
+✓ https://prod.myapp.64-23-123-45.sslip.io
 ```
 
 ### What Happens
@@ -494,7 +497,7 @@ Without a custom domain:
 8. Atomically switch `current` symlink to the new release
 9. Generate/update systemd unit file, reload systemd, restart service
 10. Regenerate Caddy config and reload
-11. Clean up old releases (keep N for production, 1 for previews)
+11. Clean up old releases (keep N for prod, 1 for previews)
 12. Release lock
 13. Print URL
 
@@ -509,22 +512,24 @@ The deploy flow is designed to be resilient to interruptions:
 
 ## Caddy Configuration
 
-Auto-generated from deployments on disk.
+Caddy is configured with a single stable main file and one file per app.
 
 ### With Custom Domain
 
 ```
 # /etc/caddy/Caddyfile
+import /etc/caddy/caddy.d/*.caddy
 
-myapp.com {
+# /etc/caddy/caddy.d/myapp.caddy
+prod.myapp.example.com {
     reverse_proxy localhost:3000
 }
 
-pr-42.preview.myapp.com {
+pr-42.myapp.example.com {
     reverse_proxy localhost:3001
 }
 
-pr-123.preview.myapp.com {
+pr-123.myapp.example.com {
     reverse_proxy localhost:3002
 }
 ```
@@ -537,12 +542,14 @@ When no domain is configured, toss uses [sslip.io](https://sslip.io/) for automa
 
 ```
 # /etc/caddy/Caddyfile (server IP: 64.23.123.45)
+import /etc/caddy/caddy.d/*.caddy
 
-production.64-23-123-45.sslip.io {
+# /etc/caddy/caddy.d/myapp.caddy
+prod.myapp.64-23-123-45.sslip.io {
     reverse_proxy localhost:3000
 }
 
-pr-42.64-23-123-45.sslip.io {
+pr-42.myapp.64-23-123-45.sslip.io {
     reverse_proxy localhost:3001
 }
 ```
@@ -555,16 +562,16 @@ sslip.io provides wildcard DNS that maps any subdomain to the embedded IP addres
 
 IPv6 is supported by replacing `:` with `-` and using only dashes:
 ```
-production.--1.sslip.io
-staging.2a01-4f8-c17-b8f--2.sslip.io
+prod.myapp.--1.sslip.io
+staging.myapp.2a01-4f8-c17-b8f--2.sslip.io
 ```
 
 ## GitHub Actions
 
 Generated by `toss init`.
 
-If a domain is configured, preview URLs use `pr-<number>.preview.<domain>`.
-If no domain is configured, preview URLs use sslip.io (`pr-<number>.<ip>.sslip.io`).
+If a domain is configured, preview URLs use `pr-<number>.<app>.<domain>`.
+If no domain is configured, preview URLs use sslip.io (`pr-<number>.<app>.<ip>.sslip.io`).
 
 `.github/workflows/toss.yml`:
 
@@ -600,7 +607,7 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             toss deploy pr-${{ github.event.pull_request.number }}
           else
-            toss deploy production
+            toss deploy prod
           fi
 
       - name: Comment preview URL
@@ -612,7 +619,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: '🚀 Preview: https://pr-${{ github.event.pull_request.number }}.preview.${{ vars.DOMAIN }}'
+              body: '🚀 Preview: https://pr-${{ github.event.pull_request.number }}.myapp.${{ vars.DOMAIN }}'
             })
 
   cleanup:
@@ -696,7 +703,7 @@ node_modules
 toss init
 
 # 2. Push your secrets
-toss secrets push production --file .env.local
+toss secrets push prod --file .env.local
 toss secrets push preview --file .env.local
 
 # 3. Commit
@@ -708,7 +715,7 @@ git push
 ### Daily Development
 
 ```bash
-# Push to main → auto deploys to production
+# Push to main → auto deploys to prod
 git push origin main
 
 # Open PR → auto deploys preview
@@ -720,7 +727,7 @@ git push origin main
 ### Manual Deploy
 
 ```bash
-toss deploy production
+toss deploy prod
 toss deploy pr-42
 ```
 
@@ -729,9 +736,10 @@ toss deploy pr-42
 ```bash
 toss list                                  # see what's running
 toss status                                # status summary (includes overrides)
-toss logs production                       # stream logs
+toss logs prod                       # stream logs
 toss logs pr-42 -n 100                     # last 100 lines
-toss ssh production                        # SSH into current release dir
+toss logs prod --since "1h"                # logs from last hour
+toss ssh prod                        # SSH into current release dir
 toss remove pr-42                          # remove preview
 toss deploy pr-42 -s DATABASE_URL=...      # deploy with override
 ```

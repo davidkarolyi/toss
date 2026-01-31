@@ -54,7 +54,7 @@ export async function sshCommand(args: string[]): Promise<void> {
 Open an interactive SSH session to a deployment.
 
 Arguments:
-  env                 Environment name (e.g., production, pr-42)
+  env                 Environment name (e.g., prod, pr-42)
 
 Options:
   -h, --help          Show this help message
@@ -62,7 +62,7 @@ Options:
 The session starts in the current release directory (/srv/<app>/<env>/current/).
 
 Examples:
-  toss ssh production    SSH into production deployment
+  toss ssh prod          SSH into prod deployment
   toss ssh pr-42         SSH into pr-42 preview deployment
 `);
     return;
@@ -74,7 +74,7 @@ Examples:
     console.error("Usage: toss ssh <env>");
     console.error("");
     console.error("Examples:");
-    console.error("  toss ssh production");
+    console.error("  toss ssh prod");
     console.error("  toss ssh pr-42");
     process.exit(1);
   }

@@ -27,7 +27,7 @@ import {
 } from "../releases.ts";
 import { updateCaddyConfig, getDeploymentUrl } from "../caddy.ts";
 import { applyDependencies, formatDependencyError } from "../dependencies.ts";
-import { withLock } from "../lock.ts";
+import { withLock, formatLockInfo } from "../lock.ts";
 import { resolvePort } from "../ports.ts";
 import { detectGitOrigin } from "../provisioning.ts";
 import { validateEnvironmentNameOrThrow } from "../environment.ts";
@@ -93,7 +93,7 @@ function parseDeployArgs(args: string[]): {
       "Missing environment argument.\n\n" +
         "Usage: toss deploy <environment>\n\n" +
         "Examples:\n" +
-        "  toss deploy production\n" +
+        "  toss deploy prod\n" +
         "  toss deploy pr-42\n" +
         "  toss deploy pr-42 -s DATABASE_URL=postgres://..."
     );
@@ -147,7 +147,7 @@ function printDeployHelp(): void {
 Usage: toss deploy <environment> [options]
 
 Arguments:
-  environment       The environment to deploy to (e.g., production, pr-42)
+  environment       The environment to deploy to (e.g., prod, pr-42)
 
 Options:
   -s, --secret KEY=VALUE    Set a per-environment secret override
@@ -156,7 +156,7 @@ Options:
   -h, --help                Show this help message
 
 Examples:
-  toss deploy production
+  toss deploy prod
   toss deploy pr-42
   toss deploy pr-42 -s DATABASE_URL=postgres://db/pr_42
   toss deploy pr-42 -s DATABASE_URL=postgres://db/pr_42 -s DEBUG=true
@@ -218,15 +218,16 @@ async function mergeAndWriteSecrets(
   connection: ReturnType<typeof parseServerString>,
   appName: string,
   environment: string,
-  deploymentDir: string
+  deploymentDir: string,
+  runtimeEnv: Record<string, string> = {}
 ): Promise<{ hasSecrets: boolean; mergedSecrets: Record<string, string> }> {
   const secretsDir = getSecretsDirectory(appName);
   const overridesDir = getSecretsOverridesDirectory(appName);
 
   // Determine base secrets file
   const baseSecretsFile =
-    environment === "production"
-      ? `${secretsDir}/production.env`
+    environment === "prod"
+      ? `${secretsDir}/prod.env`
       : `${secretsDir}/preview.env`;
 
   const overrideFile = `${overridesDir}/${environment}.env`;
@@ -252,8 +253,8 @@ async function mergeAndWriteSecrets(
     overrideSecrets = parseEnvFile(content);
   }
 
-  // Merge: overrides take precedence
-  const merged = { ...baseSecrets, ...overrideSecrets };
+  // Merge: overrides take precedence, runtime vars always win
+  const merged = { ...baseSecrets, ...overrideSecrets, ...runtimeEnv };
 
   // Write to deployment directory
   const envFilePath = `${deploymentDir}/.env`;
@@ -456,25 +457,7 @@ export async function deployCommand(args: string[]): Promise<void> {
         );
       }
 
-      // 7. Merge and write secrets to release directory
-      console.log("→ Loading secrets...");
-      const secretsResult = await mergeAndWriteSecrets(
-        connection,
-        config.app,
-        environment,
-        releaseDir
-      );
-
-      if (!secretsResult.hasSecrets) {
-        console.log(
-          "  ⚠ No secrets found. Your app will start with an empty .env file."
-        );
-        console.log(
-          `  Push secrets with: toss secrets push ${environment === "production" ? "production" : "preview"} --file .env.local`
-        );
-      }
-
-      // 8. Resolve/assign port
+      // 7. Resolve/assign port
       console.log("→ Assigning port...");
       const portResult = await resolvePort(connection, state, environment);
 
@@ -486,13 +469,37 @@ export async function deployCommand(args: string[]): Promise<void> {
 
       console.log(`  Using port ${portResult.port}`);
 
+      // 8. Merge and write secrets + runtime vars to release directory
+      console.log("→ Loading secrets...");
+      const runtimeEnvVars: Record<string, string> = {
+        PORT: portResult.port.toString(),
+        TOSS_PORT: portResult.port.toString(),
+      };
+      const secretsResult = await mergeAndWriteSecrets(
+        connection,
+        config.app,
+        environment,
+        releaseDir,
+        runtimeEnvVars
+      );
+
+      if (!secretsResult.hasSecrets) {
+        console.log(
+          "  ⚠ No secrets found. Your app will start with an empty .env file."
+        );
+        console.log(
+          `  Push secrets with: toss secrets push ${environment === "prod" ? "prod" : "preview"} --file .env.local`
+        );
+      }
+
       // 9. Run deploy script in release directory
       console.log("→ Running deploy script...");
-      const prodCurrentDir = getCurrentWorkingDirectory(config.app, "production");
+      const prodCurrentDir = getCurrentWorkingDirectory(config.app, "prod");
       const tossEnvVars: Record<string, string> = {
         TOSS_ENV: environment,
         TOSS_APP: config.app,
         TOSS_PORT: portResult.port.toString(),
+        PORT: portResult.port.toString(),
         TOSS_RELEASE_DIR: releaseDir,
         TOSS_ENV_DIR: envDir,
         TOSS_PROD_DIR: prodCurrentDir,
@@ -502,12 +509,28 @@ export async function deployCommand(args: string[]): Promise<void> {
         ...tossEnvVars,
       };
 
-      await runDeployScript(
-        connection,
-        releaseDir,
-        config.deployScript,
-        deployEnvironmentVariables
-      );
+      try {
+        await runDeployScript(
+          connection,
+          releaseDir,
+          config.deployScript,
+          deployEnvironmentVariables
+        );
+      } catch (error) {
+        const summaryLines = [
+          `  TOSS_ENV=${tossEnvVars.TOSS_ENV}`,
+          `  TOSS_APP=${tossEnvVars.TOSS_APP}`,
+          `  TOSS_PORT=${tossEnvVars.TOSS_PORT}`,
+          `  PORT=${tossEnvVars.PORT}`,
+          `  TOSS_RELEASE_DIR=${tossEnvVars.TOSS_RELEASE_DIR}`,
+          `  TOSS_ENV_DIR=${tossEnvVars.TOSS_ENV_DIR}`,
+          `  TOSS_PROD_DIR=${tossEnvVars.TOSS_PROD_DIR}`,
+        ];
+        console.error("");
+        console.error("Deploy script failed. Resolved deploy env:");
+        console.error(summaryLines.join("\n"));
+        throw error;
+      }
 
       // 10. Atomically switch current symlink to new release
       console.log("→ Activating release...");
@@ -564,7 +587,7 @@ export async function deployCommand(args: string[]): Promise<void> {
       }
 
       // 15. Print success
-      const url = getDeploymentUrl(environment, serverHost, config.domain);
+      const url = getDeploymentUrl(environment, config.app, serverHost, config.domain);
       const serviceName = getServiceName(config.app, environment);
 
       console.log("");
@@ -580,6 +603,18 @@ export async function deployCommand(args: string[]): Promise<void> {
       onLockAcquired: (result) => {
         if (result.reason) {
           console.log(`  Note: ${result.reason}`);
+        }
+      },
+    },
+    {
+      onLockAcquired: (result) => {
+        if (result.reason && result.existingLock) {
+          const formatted = formatLockInfo(result.existingLock)
+            .split("\n")
+            .map((line) => `  ${line}`)
+            .join("\n");
+          console.log(`→ Lock recovery: ${result.reason}`);
+          console.log(formatted);
         }
       },
     }

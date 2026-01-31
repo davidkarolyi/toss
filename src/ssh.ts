@@ -144,18 +144,18 @@ export async function exec(
     sshArgs.push("-t");
   }
 
-  // Build the remote command with optional cd and env
+  // Build the remote command with optional env and working directory
   let remoteCommand = command;
+
+  if (env && Object.keys(env).length > 0) {
+    const envExports = Object.entries(env)
+      .map(([key, value]) => `${key}=${escapeShellArg(value)}`)
+      .join(" ");
+    remoteCommand = `export ${envExports} && ${remoteCommand}`;
+  }
 
   if (cwd) {
     remoteCommand = `cd ${escapeShellArg(cwd)} && ${remoteCommand}`;
-  }
-
-  if (env && Object.keys(env).length > 0) {
-    const envPrefix = Object.entries(env)
-      .map(([key, value]) => `${key}=${escapeShellArg(value)}`)
-      .join(" ");
-    remoteCommand = `${envPrefix} ${remoteCommand}`;
   }
 
   const shouldUseSudo = requiresSudo && connection.user !== "root";

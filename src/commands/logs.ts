@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { loadConfig, parseServerString } from "../config.ts";
 import { getServiceName } from "../systemd.ts";
-import { buildSshArgs } from "../ssh.ts";
+import { buildSshArgs, escapeShellArg } from "../ssh.ts";
 import type { ServerConnection } from "../config.ts";
 import { validateEnvironmentNameOrThrow } from "../environment.ts";
 
@@ -13,10 +13,14 @@ import { validateEnvironmentNameOrThrow } from "../environment.ts";
 function parseArgs(args: string[]): {
   environment: string | null;
   lineCount: number | null;
+  since: string | null;
+  follow: boolean | null;
   showHelp: boolean;
 } {
   let environment: string | null = null;
   let lineCount: number | null = null;
+  let since: string | null = null;
+  let follow: boolean | null = null;
   let showHelp = false;
   let skipNext = false;
 
@@ -50,6 +54,30 @@ function parseArgs(args: string[]): {
       continue;
     }
 
+    if (arg === "--since") {
+      const nextArg = args[index + 1];
+      if (nextArg === undefined) {
+        throw new Error("The --since flag requires a time argument");
+      }
+      since = nextArg;
+      skipNext = true;
+      continue;
+    }
+
+    if (arg.startsWith("--since=")) {
+      const value = arg.slice("--since=".length);
+      if (!value) {
+        throw new Error("The --since flag requires a time argument");
+      }
+      since = value;
+      continue;
+    }
+
+    if (arg === "-f" || arg === "--follow") {
+      follow = true;
+      continue;
+    }
+
     // If it starts with - but isn't a known flag, error
     if (arg.startsWith("-")) {
       throw new Error(`Unknown option: ${arg}`);
@@ -63,7 +91,7 @@ function parseArgs(args: string[]): {
     }
   }
 
-  return { environment, lineCount, showHelp };
+  return { environment, lineCount, since, follow, showHelp };
 }
 
 /**
@@ -77,17 +105,27 @@ function parseArgs(args: string[]): {
 function streamLogs(
   connection: ServerConnection,
   serviceName: string,
-  lineCount: number | null
+  options: {
+    lineCount: number | null;
+    since: string | null;
+    follow: boolean;
+  }
 ): Promise<number> {
   const sshArgs = buildSshArgs(connection);
 
   // Build the journalctl command
-  let journalCommand = `journalctl -u ${serviceName} --no-pager`;
+  let journalCommand = `journalctl -u ${escapeShellArg(serviceName)} --no-pager`;
 
-  if (lineCount !== null) {
+  if (options.since) {
+    journalCommand += ` --since ${escapeShellArg(options.since)}`;
+  }
+
+  if (options.lineCount !== null) {
     // Show last N lines
-    journalCommand += ` -n ${lineCount}`;
-  } else {
+    journalCommand += ` -n ${options.lineCount}`;
+  }
+
+  if (options.follow) {
     // Stream continuously (follow mode)
     journalCommand += " -f";
   }
@@ -127,21 +165,25 @@ export async function logsCommand(args: string[]): Promise<void> {
   const parsed = parseArgs(args);
 
   if (parsed.showHelp) {
-    console.log(`Usage: toss logs <env> [-n <lines>]
+    console.log(`Usage: toss logs <env> [options]
 
 Tail logs for an environment.
 
 Arguments:
-  env                 Environment name (e.g., production, pr-42)
+  env                 Environment name (e.g., prod, pr-42)
 
 Options:
-  -n <lines>          Show last N lines and exit (default: stream continuously)
+  -n <lines>          Show last N lines
+  --since <time>      Show logs since a time (e.g., "1 hour ago", "2025-01-01")
+  -f, --follow        Follow logs (default unless -n is used)
   -h, --help          Show this help message
 
 Examples:
-  toss logs production         Stream production logs continuously
-  toss logs pr-42              Stream pr-42 logs continuously
-  toss logs production -n 100  Show last 100 lines of production logs
+  toss logs prod                   Stream prod logs continuously
+  toss logs pr-42                  Stream pr-42 logs continuously
+  toss logs prod -n 100            Show last 100 lines of prod logs
+  toss logs prod -n 100 --follow   Show last 100 lines, then follow
+  toss logs prod --since "1 hour ago"      Show logs from the last hour
 `);
     return;
   }
@@ -149,10 +191,10 @@ Examples:
   if (!parsed.environment) {
     console.error("Error: Environment name is required.");
     console.error("");
-    console.error("Usage: toss logs <env> [-n <lines>]");
+    console.error("Usage: toss logs <env> [options]");
     console.error("");
     console.error("Examples:");
-    console.error("  toss logs production");
+    console.error("  toss logs prod");
     console.error("  toss logs pr-42 -n 100");
     process.exit(1);
   }
@@ -163,12 +205,17 @@ Examples:
   const { config } = await loadConfig();
   const connection = parseServerString(config.server);
   const serviceName = getServiceName(config.app, parsed.environment);
+  const follow = parsed.follow ?? parsed.lineCount === null;
 
-  if (parsed.lineCount === null) {
+  if (follow && parsed.lineCount === null && !parsed.since) {
     console.log(`Streaming logs for ${parsed.environment}... (Ctrl+C to stop)`);
   }
 
-  const exitCode = await streamLogs(connection, serviceName, parsed.lineCount);
+  const exitCode = await streamLogs(connection, serviceName, {
+    lineCount: parsed.lineCount,
+    since: parsed.since,
+    follow,
+  });
 
   if (exitCode !== 0 && exitCode !== 130) {
     // Exit code 130 is SIGINT (Ctrl+C), which is expected for streaming

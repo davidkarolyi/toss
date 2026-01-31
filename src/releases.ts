@@ -214,7 +214,7 @@ export async function listReleases(
     .filter((name) => name.length > 0);
 }
 
-/** Default number of releases to keep for production */
+/** Default number of releases to keep for prod */
 export const DEFAULT_KEEP_RELEASES = 3;
 
 /**
@@ -232,7 +232,7 @@ export interface CleanupResult {
 /**
  * Cleans up old releases after a successful deploy.
  *
- * For production environments:
+ * For prod environments:
  *   - Keeps the most recent N releases (where N is keepReleases, defaulting to 3)
  *   - Never deletes the current active release
  *
@@ -241,8 +241,8 @@ export interface CleanupResult {
  *
  * @param connection SSH connection to the server
  * @param appName The application name
- * @param environment The environment (e.g., "production", "pr-42")
- * @param keepReleases Number of releases to keep (only used for production)
+ * @param environment The environment (e.g., "prod", "pr-42")
+ * @param keepReleases Number of releases to keep (only used for prod)
  * @returns Information about what was cleaned up
  */
 export async function cleanupOldReleases(
@@ -273,8 +273,8 @@ export async function cleanupOldReleases(
     : null;
 
   // Determine how many to keep based on environment type
-  const isProduction = environment === "production";
-  const releasesToKeep = isProduction ? keepReleases : 1;
+  const isProd = environment === "prod";
+  const releasesToKeep = isProd ? keepReleases : 1;
 
   // Find releases to delete
   // Releases are sorted oldest first, so we delete from the beginning

@@ -90,7 +90,7 @@ describe("getTrackedPorts", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
         "pr-42": { port: 3001 },
         "pr-123": { port: 3002 },
       },
@@ -110,7 +110,7 @@ describe("getTrackedPorts", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
       },
       appliedDependencies: [],
       lock: null,

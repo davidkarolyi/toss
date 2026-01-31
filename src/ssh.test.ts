@@ -59,8 +59,8 @@ describe("escapeShellArg", () => {
   });
 
   test("wraps path in single quotes", () => {
-    expect(escapeShellArg("/srv/myapp/production")).toBe(
-      "'/srv/myapp/production'"
+    expect(escapeShellArg("/srv/myapp/prod")).toBe(
+      "'/srv/myapp/prod'"
     );
   });
 

@@ -31,7 +31,7 @@ Usage: toss <command> [options]
 
 Commands:
   init                    Interactive setup wizard
-  deploy <env>            Deploy to environment (e.g., production, pr-42)
+  deploy <env>            Deploy to environment (e.g., prod, pr-42)
   remove <env>            Remove an environment
   list                    List running deployments
   status                  Status summary
@@ -46,9 +46,9 @@ Options:
 
 Examples:
   toss init               Set up a new project
-  toss deploy production  Deploy to production
+  toss deploy prod        Deploy to prod
   toss deploy pr-42       Deploy a preview environment
-  toss logs production    Stream production logs
+  toss logs prod          Stream prod logs
 `);
 }
 

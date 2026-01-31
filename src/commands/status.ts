@@ -10,7 +10,7 @@ import {
   getPortForEnvironment,
   getSecretsOverridesDirectory,
 } from "../state.ts";
-import { getDeploymentUrl } from "../caddy.ts";
+import { getDeploymentUrl, getDeploymentHostname } from "../caddy.ts";
 import { getServiceStatus } from "../systemd.ts";
 import { formatLockInfo, isLockStale } from "../lock.ts";
 import { parseEnvFile } from "./deploy.ts";
@@ -46,7 +46,7 @@ async function gatherDeploymentStatus(
     const port = getPortForEnvironment(state, environment);
     if (port === undefined) continue;
 
-    const url = getDeploymentUrl(environment, serverHost, domain);
+    const url = getDeploymentUrl(environment, appName, serverHost, domain);
 
     // Get service status
     let status = "unknown";
@@ -85,10 +85,10 @@ async function gatherDeploymentStatus(
     });
   }
 
-  // Sort: production first, then alphabetically
+  // Sort: prod first, then alphabetically
   deployments.sort((deploymentA, deploymentB) => {
-    if (deploymentA.environment === "production") return -1;
-    if (deploymentB.environment === "production") return 1;
+    if (deploymentA.environment === "prod") return -1;
+    if (deploymentB.environment === "prod") return 1;
     return deploymentA.environment.localeCompare(deploymentB.environment);
   });
 
@@ -121,15 +121,25 @@ function formatServiceStatus(status: string): string {
 function renderConfig(
   appName: string,
   server: string,
+  serverHost: string,
   domain: string | undefined,
   startCommand: string,
   deployScript: string[]
 ): void {
+  const prodHostname = getDeploymentHostname("prod", appName, serverHost, domain);
+  const previewHostname = getDeploymentHostname(
+    "pr-<number>",
+    appName,
+    serverHost,
+    domain
+  );
   console.log("Configuration");
   console.log("─".repeat(50));
   console.log(`  App:           ${appName}`);
   console.log(`  Server:        ${server}`);
   console.log(`  Domain:        ${domain || "(sslip.io)"}`);
+  console.log(`  URL (prod):    https://${prodHostname}`);
+  console.log(`  URL (preview): https://${previewHostname}`);
   console.log(`  Start:         ${startCommand}`);
   console.log(`  Deploy script: ${deployScript.length} command(s)`);
 }
@@ -178,7 +188,7 @@ function renderDeployments(deployments: DeploymentStatusInfo[]): void {
     console.log("  No deployments found.");
     console.log("");
     console.log("  Deploy with:");
-    console.log("    toss deploy production");
+    console.log("    toss deploy prod");
     return;
   }
 
@@ -235,6 +245,7 @@ Examples:
   renderConfig(
     config.app,
     config.server,
+    serverHost,
     config.domain,
     config.startCommand,
     config.deployScript

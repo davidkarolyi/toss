@@ -8,7 +8,7 @@ import {
 describe("validateEnvironmentName", () => {
   describe("valid names", () => {
     it("accepts simple lowercase names", () => {
-      expect(validateEnvironmentName("production")).toEqual({ valid: true });
+      expect(validateEnvironmentName("prod")).toEqual({ valid: true });
       expect(validateEnvironmentName("staging")).toEqual({ valid: true });
       expect(validateEnvironmentName("development")).toEqual({ valid: true });
     });
@@ -51,6 +51,20 @@ describe("validateEnvironmentName", () => {
     });
   });
 
+  describe("invalid names - deprecated", () => {
+    it("rejects production in any casing", () => {
+      const lower = validateEnvironmentName("production");
+      expect(lower.valid).toBe(false);
+      expect(lower.error).toContain("not supported");
+      expect(lower.error).toContain("prod");
+
+      const upper = validateEnvironmentName("Production");
+      expect(upper.valid).toBe(false);
+      expect(upper.error).toContain("not supported");
+      expect(upper.error).toContain("prod");
+    });
+  });
+
   describe("invalid names - length", () => {
     it("rejects names longer than 63 characters", () => {
       const longName = "a" + "b".repeat(63);
@@ -81,17 +95,17 @@ describe("validateEnvironmentName", () => {
 
   describe("invalid names - uppercase", () => {
     it("rejects uppercase names with helpful suggestion", () => {
-      const result = validateEnvironmentName("Production");
-      expect(result.valid).toBe(false);
-      expect(result.error).toContain("must be lowercase");
-      expect(result.error).toContain('Try "production" instead');
-    });
-
-    it("rejects all uppercase names", () => {
       const result = validateEnvironmentName("STAGING");
       expect(result.valid).toBe(false);
       expect(result.error).toContain("must be lowercase");
       expect(result.error).toContain('Try "staging" instead');
+    });
+
+    it("rejects all uppercase names", () => {
+      const result = validateEnvironmentName("DEV");
+      expect(result.valid).toBe(false);
+      expect(result.error).toContain("must be lowercase");
+      expect(result.error).toContain('Try "dev" instead');
     });
 
     it("rejects mixed case names", () => {
@@ -156,14 +170,14 @@ describe("validateEnvironmentName", () => {
 
 describe("validateEnvironmentNameOrThrow", () => {
   it("does not throw for valid names", () => {
-    expect(() => validateEnvironmentNameOrThrow("production")).not.toThrow();
+    expect(() => validateEnvironmentNameOrThrow("prod")).not.toThrow();
     expect(() => validateEnvironmentNameOrThrow("pr-42")).not.toThrow();
     expect(() => validateEnvironmentNameOrThrow("staging")).not.toThrow();
   });
 
   it("throws with detailed error for invalid names", () => {
     expect(() => validateEnvironmentNameOrThrow("Production")).toThrow(
-      "must be lowercase"
+      "not supported"
     );
     expect(() => validateEnvironmentNameOrThrow("Production")).toThrow(
       "Environment name rules:"
@@ -176,7 +190,7 @@ describe("validateEnvironmentNameOrThrow", () => {
       expect(true).toBe(false); // Should not reach here
     } catch (error) {
       const message = (error as Error).message;
-      expect(message).toContain("production");
+      expect(message).toContain("prod");
       expect(message).toContain("staging");
       expect(message).toContain("pr-42");
     }
@@ -197,7 +211,7 @@ describe("validateEnvironmentNameOrThrow", () => {
 
 describe("isValidEnvironmentName", () => {
   it("returns true for valid names", () => {
-    expect(isValidEnvironmentName("production")).toBe(true);
+    expect(isValidEnvironmentName("prod")).toBe(true);
     expect(isValidEnvironmentName("pr-42")).toBe(true);
     expect(isValidEnvironmentName("staging")).toBe(true);
     expect(isValidEnvironmentName("a")).toBe(true);
@@ -206,6 +220,7 @@ describe("isValidEnvironmentName", () => {
   it("returns false for invalid names", () => {
     expect(isValidEnvironmentName("")).toBe(false);
     expect(isValidEnvironmentName("Production")).toBe(false);
+    expect(isValidEnvironmentName("production")).toBe(false);
     expect(isValidEnvironmentName("42pr")).toBe(false);
     expect(isValidEnvironmentName("my_feature")).toBe(false);
     expect(isValidEnvironmentName("-invalid")).toBe(false);

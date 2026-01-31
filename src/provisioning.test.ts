@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test";
 import {
   getAppDirectory,
-  getProductionSecretsPath,
+  getProdSecretsPath,
   getPreviewSecretsPath,
 } from "./provisioning.ts";
 
@@ -19,16 +19,16 @@ describe("getAppDirectory", () => {
   });
 });
 
-describe("getProductionSecretsPath", () => {
-  test("returns correct path for production secrets", () => {
-    expect(getProductionSecretsPath("myapp")).toBe(
-      "/srv/myapp/.toss/secrets/production.env"
+describe("getProdSecretsPath", () => {
+  test("returns correct path for prod secrets", () => {
+    expect(getProdSecretsPath("myapp")).toBe(
+      "/srv/myapp/.toss/secrets/prod.env"
     );
   });
 
   test("handles hyphenated app names", () => {
-    expect(getProductionSecretsPath("my-app")).toBe(
-      "/srv/my-app/.toss/secrets/production.env"
+    expect(getProdSecretsPath("my-app")).toBe(
+      "/srv/my-app/.toss/secrets/prod.env"
     );
   });
 });
@@ -51,16 +51,16 @@ describe("directory structure consistency", () => {
   test("secrets paths are under app directory", () => {
     const appName = "testapp";
     const appDir = getAppDirectory(appName);
-    const prodSecrets = getProductionSecretsPath(appName);
+    const prodSecrets = getProdSecretsPath(appName);
     const previewSecrets = getPreviewSecretsPath(appName);
 
     expect(prodSecrets.startsWith(appDir)).toBe(true);
     expect(previewSecrets.startsWith(appDir)).toBe(true);
   });
 
-  test("production and preview secrets are in same directory", () => {
+  test("prod and preview secrets are in same directory", () => {
     const appName = "myapp";
-    const prodPath = getProductionSecretsPath(appName);
+    const prodPath = getProdSecretsPath(appName);
     const previewPath = getPreviewSecretsPath(appName);
 
     // Both should be in /srv/myapp/.toss/secrets/

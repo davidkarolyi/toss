@@ -8,9 +8,9 @@ import { getServiceName } from "../systemd.ts";
  */
 
 describe("logs command service name construction", () => {
-  test("constructs service name for production", () => {
-    const serviceName = getServiceName("myapp", "production");
-    expect(serviceName).toBe("toss-myapp-production");
+  test("constructs service name for prod", () => {
+    const serviceName = getServiceName("myapp", "prod");
+    expect(serviceName).toBe("toss-myapp-prod");
   });
 
   test("constructs service name for preview environment", () => {
@@ -29,10 +29,14 @@ describe("logs command argument parsing logic", () => {
   function parseArgs(args: string[]): {
     environment: string | null;
     lineCount: number | null;
+    since: string | null;
+    follow: boolean | null;
     showHelp: boolean;
   } {
     let environment: string | null = null;
     let lineCount: number | null = null;
+    let since: string | null = null;
+    let follow: boolean | null = null;
     let showHelp = false;
     let skipNext = false;
 
@@ -68,6 +72,30 @@ describe("logs command argument parsing logic", () => {
         continue;
       }
 
+      if (arg === "--since") {
+        const nextArg = args[index + 1];
+        if (nextArg === undefined) {
+          throw new Error("The --since flag requires a time argument");
+        }
+        since = nextArg;
+        skipNext = true;
+        continue;
+      }
+
+      if (arg.startsWith("--since=")) {
+        const value = arg.slice("--since=".length);
+        if (!value) {
+          throw new Error("The --since flag requires a time argument");
+        }
+        since = value;
+        continue;
+      }
+
+      if (arg === "-f" || arg === "--follow") {
+        follow = true;
+        continue;
+      }
+
       if (arg.startsWith("-")) {
         throw new Error(`Unknown option: ${arg}`);
       }
@@ -79,20 +107,24 @@ describe("logs command argument parsing logic", () => {
       }
     }
 
-    return { environment, lineCount, showHelp };
+    return { environment, lineCount, since, follow, showHelp };
   }
 
   test("parses environment name only", () => {
-    const result = parseArgs(["production"]);
-    expect(result.environment).toBe("production");
+    const result = parseArgs(["prod"]);
+    expect(result.environment).toBe("prod");
     expect(result.lineCount).toBeNull();
+    expect(result.since).toBeNull();
+    expect(result.follow).toBeNull();
     expect(result.showHelp).toBe(false);
   });
 
   test("parses environment and -n flag", () => {
-    const result = parseArgs(["production", "-n", "100"]);
-    expect(result.environment).toBe("production");
+    const result = parseArgs(["prod", "-n", "100"]);
+    expect(result.environment).toBe("prod");
     expect(result.lineCount).toBe(100);
+    expect(result.since).toBeNull();
+    expect(result.follow).toBeNull();
     expect(result.showHelp).toBe(false);
   });
 
@@ -100,6 +132,8 @@ describe("logs command argument parsing logic", () => {
     const result = parseArgs(["-n", "50", "pr-42"]);
     expect(result.environment).toBe("pr-42");
     expect(result.lineCount).toBe(50);
+    expect(result.since).toBeNull();
+    expect(result.follow).toBeNull();
     expect(result.showHelp).toBe(false);
   });
 
@@ -113,44 +147,68 @@ describe("logs command argument parsing logic", () => {
     expect(result.showHelp).toBe(true);
   });
 
+  test("parses --since flag", () => {
+    const result = parseArgs(["prod", "--since", "1h"]);
+    expect(result.environment).toBe("prod");
+    expect(result.since).toBe("1h");
+  });
+
+  test("parses --since= flag", () => {
+    const result = parseArgs(["prod", "--since=2025-01-01"]);
+    expect(result.environment).toBe("prod");
+    expect(result.since).toBe("2025-01-01");
+  });
+
+  test("parses --follow flag", () => {
+    const result = parseArgs(["prod", "--follow"]);
+    expect(result.environment).toBe("prod");
+    expect(result.follow).toBe(true);
+  });
+
   test("help flag with environment", () => {
-    const result = parseArgs(["production", "--help"]);
+    const result = parseArgs(["prod", "--help"]);
     expect(result.showHelp).toBe(true);
-    expect(result.environment).toBe("production");
+    expect(result.environment).toBe("prod");
   });
 
   test("throws on missing -n argument", () => {
-    expect(() => parseArgs(["production", "-n"])).toThrow(
+    expect(() => parseArgs(["prod", "-n"])).toThrow(
       "The -n flag requires a number argument"
     );
   });
 
+  test("throws on missing --since argument", () => {
+    expect(() => parseArgs(["prod", "--since"])).toThrow(
+      "The --since flag requires a time argument"
+    );
+  });
+
   test("throws on invalid -n argument", () => {
-    expect(() => parseArgs(["production", "-n", "abc"])).toThrow(
+    expect(() => parseArgs(["prod", "-n", "abc"])).toThrow(
       "Invalid line count: abc. Must be a positive number."
     );
   });
 
   test("throws on negative -n argument", () => {
-    expect(() => parseArgs(["production", "-n", "-5"])).toThrow(
+    expect(() => parseArgs(["prod", "-n", "-5"])).toThrow(
       "Invalid line count: -5. Must be a positive number."
     );
   });
 
   test("throws on zero -n argument", () => {
-    expect(() => parseArgs(["production", "-n", "0"])).toThrow(
+    expect(() => parseArgs(["prod", "-n", "0"])).toThrow(
       "Invalid line count: 0. Must be a positive number."
     );
   });
 
   test("throws on unknown flag", () => {
-    expect(() => parseArgs(["production", "--unknown"])).toThrow(
+    expect(() => parseArgs(["prod", "--unknown"])).toThrow(
       "Unknown option: --unknown"
     );
   });
 
   test("throws on extra positional argument", () => {
-    expect(() => parseArgs(["production", "extra"])).toThrow(
+    expect(() => parseArgs(["prod", "extra"])).toThrow(
       "Unexpected argument: extra"
     );
   });
@@ -161,7 +219,7 @@ describe("logs command argument parsing logic", () => {
   });
 
   test("returns null lineCount when not provided", () => {
-    const result = parseArgs(["production"]);
+    const result = parseArgs(["prod"]);
     expect(result.lineCount).toBeNull();
   });
 });
@@ -169,13 +227,21 @@ describe("logs command argument parsing logic", () => {
 describe("journalctl command construction", () => {
   function buildJournalCommand(
     serviceName: string,
-    lineCount: number | null
+    lineCount: number | null,
+    since: string | null,
+    follow: boolean
   ): string {
     let command = `journalctl -u ${serviceName} --no-pager`;
 
+    if (since) {
+      command += ` --since ${since}`;
+    }
+
     if (lineCount !== null) {
       command += ` -n ${lineCount}`;
-    } else {
+    }
+
+    if (follow) {
       command += " -f";
     }
 
@@ -183,42 +249,47 @@ describe("journalctl command construction", () => {
   }
 
   test("builds follow command without line count", () => {
-    const command = buildJournalCommand("toss-myapp-production", null);
-    expect(command).toBe("journalctl -u toss-myapp-production --no-pager -f");
+    const command = buildJournalCommand("toss-myapp-prod", null, null, true);
+    expect(command).toBe("journalctl -u toss-myapp-prod --no-pager -f");
   });
 
   test("builds line count command with -n flag", () => {
-    const command = buildJournalCommand("toss-myapp-production", 100);
+    const command = buildJournalCommand("toss-myapp-prod", 100, null, false);
     expect(command).toBe(
-      "journalctl -u toss-myapp-production --no-pager -n 100"
+      "journalctl -u toss-myapp-prod --no-pager -n 100"
     );
   });
 
   test("builds command for preview environment", () => {
-    const command = buildJournalCommand("toss-myapp-pr-42", 50);
+    const command = buildJournalCommand("toss-myapp-pr-42", 50, null, false);
     expect(command).toBe("journalctl -u toss-myapp-pr-42 --no-pager -n 50");
+  });
+
+  test("builds since command with follow", () => {
+    const command = buildJournalCommand("toss-myapp-prod", null, "1h", true);
+    expect(command).toBe("journalctl -u toss-myapp-prod --no-pager --since 1h -f");
   });
 });
 
 describe("logs command help text structure", () => {
   test("help text includes usage", () => {
-    const expectedUsage = "Usage: toss logs <env> [-n <lines>]";
+    const expectedUsage = "Usage: toss logs <env> [options]";
     expect(expectedUsage).toContain("toss logs");
     expect(expectedUsage).toContain("<env>");
-    expect(expectedUsage).toContain("-n");
+    expect(expectedUsage).toContain("options");
   });
 
   test("help text documents -n flag", () => {
-    const description = "Show last N lines and exit (default: stream continuously)";
+    const description = "Show last N lines";
     expect(description).toContain("last N lines");
-    expect(description).toContain("stream continuously");
   });
 
   test("help text includes examples", () => {
     const examples = [
-      "toss logs production",
+      "toss logs prod",
       "toss logs pr-42",
-      "toss logs production -n 100",
+      "toss logs prod -n 100",
+      "toss logs prod --since \"1h\"",
     ];
     for (const example of examples) {
       expect(example).toMatch(/^toss logs/);
@@ -230,10 +301,10 @@ describe("logs command error messages", () => {
   test("missing environment error includes usage", () => {
     const errorMessage = `Error: Environment name is required.
 
-Usage: toss logs <env> [-n <lines>]
+Usage: toss logs <env> [options]
 
 Examples:
-  toss logs production
+  toss logs prod
   toss logs pr-42 -n 100`;
 
     expect(errorMessage).toContain("Environment name is required");

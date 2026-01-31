@@ -144,11 +144,15 @@ function parseDeployScript(input: string): string[] {
 /**
  * Generates GitHub Actions workflow content
  */
-function generateGitHubActionsWorkflow(domain: string | undefined, serverHost: string): string {
+function generateGitHubActionsWorkflow(
+  domain: string | undefined,
+  serverHost: string,
+  appName: string
+): string {
   // For preview URL comments, use domain if available, otherwise construct sslip.io URL pattern
   const previewUrlPattern = domain
-    ? `https://pr-\${{ github.event.pull_request.number }}.preview.${domain}`
-    : `https://pr-\${{ github.event.pull_request.number }}.${serverHost.replace(/\./g, "-")}.sslip.io`;
+    ? `https://pr-\${{ github.event.pull_request.number }}.${appName}.${domain}`
+    : `https://pr-\${{ github.event.pull_request.number }}.${appName}.${serverHost.replace(/\./g, "-")}.sslip.io`;
 
   return `name: Deploy
 
@@ -181,7 +185,7 @@ jobs:
           if [ "\${{ github.event_name }}" = "pull_request" ]; then
             toss deploy pr-\${{ github.event.pull_request.number }}
           else
-            toss deploy production
+            toss deploy prod
           fi
 
       - name: Comment preview URL
@@ -303,7 +307,7 @@ export async function initCommand(_args: string[]): Promise<void> {
     // Step 2: App name
     console.log("Choose a name for your app. This will be used for:");
     console.log("  - Server directories (/srv/<app>/...)");
-    console.log("  - Service names (toss-<app>-production)");
+    console.log("  - Service names (toss-<app>-prod)");
     console.log("");
 
     const appName = await prompt(readlineInterface, "App name", {
@@ -432,7 +436,10 @@ export async function initCommand(_args: string[]): Promise<void> {
       const workflowPath = join(workflowDir, "toss.yml");
 
       mkdirSync(workflowDir, { recursive: true });
-      writeFileSync(workflowPath, generateGitHubActionsWorkflow(domain, connection.host));
+      writeFileSync(
+        workflowPath,
+        generateGitHubActionsWorkflow(domain, connection.host, appName)
+      );
       console.log("Created .github/workflows/toss.yml");
     }
 
@@ -444,8 +451,9 @@ export async function initCommand(_args: string[]): Promise<void> {
     // DNS instructions (only if domain is set)
     if (domain) {
       console.log(`${stepNumber}. Add DNS records:`);
-      console.log(`   A  ${domain}            → ${connection.host}`);
-      console.log(`   A  *.preview.${domain}  → ${connection.host}`);
+      console.log(`   A  *.${appName}.${domain}  → ${connection.host}`);
+      console.log(`   Example prod:    prod.${appName}.${domain}`);
+      console.log(`   Example preview: pr-42.${appName}.${domain}`);
       console.log("");
       stepNumber++;
     }
@@ -462,14 +470,14 @@ export async function initCommand(_args: string[]): Promise<void> {
 
     // Push secrets instruction
     console.log(`${stepNumber}. Push your secrets:`);
-    console.log("   toss secrets push production --file .env.local");
+    console.log("   toss secrets push prod --file .env.local");
     console.log("   toss secrets push preview --file .env.local");
     console.log("");
     stepNumber++;
 
     // Deploy instruction
     console.log(`${stepNumber}. Deploy:`);
-    console.log("   toss deploy production");
+    console.log("   toss deploy prod");
     console.log("");
 
     console.log("Happy deploying! 🚀");

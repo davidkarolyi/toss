@@ -41,8 +41,8 @@ describe("getSecretsOverridesDirectory", () => {
 });
 
 describe("getDeploymentDirectory", () => {
-  test("returns correct path for production", () => {
-    expect(getDeploymentDirectory("myapp", "production")).toBe("/srv/myapp/production");
+  test("returns correct path for prod", () => {
+    expect(getDeploymentDirectory("myapp", "prod")).toBe("/srv/myapp/prod");
   });
 
   test("returns correct path for preview environment", () => {
@@ -84,7 +84,7 @@ describe("getDeployedEnvironments", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
         "pr-42": { port: 3001 },
       },
       appliedDependencies: [],
@@ -92,7 +92,7 @@ describe("getDeployedEnvironments", () => {
     };
 
     const environments = getDeployedEnvironments(state);
-    expect(environments).toContain("production");
+    expect(environments).toContain("prod");
     expect(environments).toContain("pr-42");
     expect(environments).toHaveLength(2);
   });
@@ -101,21 +101,21 @@ describe("getDeployedEnvironments", () => {
 describe("getPortForEnvironment", () => {
   test("returns undefined for non-existent environment", () => {
     const state = createEmptyState();
-    expect(getPortForEnvironment(state, "production")).toBeUndefined();
+    expect(getPortForEnvironment(state, "prod")).toBeUndefined();
   });
 
   test("returns port for existing environment", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
         "pr-42": { port: 3001 },
       },
       appliedDependencies: [],
       lock: null,
     };
 
-    expect(getPortForEnvironment(state, "production")).toBe(3000);
+    expect(getPortForEnvironment(state, "prod")).toBe(3000);
     expect(getPortForEnvironment(state, "pr-42")).toBe(3001);
   });
 });
@@ -125,7 +125,7 @@ describe("TossState structure", () => {
     const state: TossState = {
       origin: "git@github.com:user/myapp.git",
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
         "pr-42": { port: 3001 },
         staging: { port: 3002 },
       },

@@ -14,9 +14,9 @@ import type { DeploymentLock } from "./state.ts";
 
 describe("createLock", () => {
   test("creates lock with current hostname and pid", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
 
-    expect(lock.environment).toBe("production");
+    expect(lock.environment).toBe("prod");
     expect(lock.host).toBe(os.hostname());
     expect(lock.pid).toBe(process.pid);
     expect(typeof lock.startedAt).toBe("string");
@@ -32,7 +32,7 @@ describe("createLock", () => {
   });
 
   test("preserves environment name", () => {
-    expect(createLock("production").environment).toBe("production");
+    expect(createLock("prod").environment).toBe("prod");
     expect(createLock("pr-42").environment).toBe("pr-42");
     expect(createLock("staging").environment).toBe("staging");
   });
@@ -40,13 +40,13 @@ describe("createLock", () => {
 
 describe("isLockStale", () => {
   test("returns false for fresh lock", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
     expect(isLockStale(lock)).toBe(false);
   });
 
   test("returns false for lock under 30 minutes old", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 29 * 60 * 1000).toISOString(), // 29 minutes ago
@@ -56,7 +56,7 @@ describe("isLockStale", () => {
 
   test("returns true for lock exactly 30 minutes old", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 30 * 60 * 1000 - 1).toISOString(), // Just over 30 minutes
@@ -66,7 +66,7 @@ describe("isLockStale", () => {
 
   test("returns true for lock over 30 minutes old", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(), // 1 hour ago
@@ -76,7 +76,7 @@ describe("isLockStale", () => {
 
   test("returns true for very old lock", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(), // 1 day ago
@@ -87,7 +87,7 @@ describe("isLockStale", () => {
 
 describe("getLockAge", () => {
   test("returns correct age for fresh lock", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
     const { minutes, seconds } = getLockAge(lock);
 
     expect(minutes).toBe(0);
@@ -96,7 +96,7 @@ describe("getLockAge", () => {
 
   test("returns correct age for older lock", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 5 * 60 * 1000 - 30 * 1000).toISOString(), // 5 min 30 sec ago
@@ -110,7 +110,7 @@ describe("getLockAge", () => {
 
   test("returns only seconds for sub-minute age", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 45 * 1000).toISOString(), // 45 seconds ago
@@ -125,13 +125,13 @@ describe("getLockAge", () => {
 
 describe("isOwnLock", () => {
   test("returns true for lock owned by current process", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
     expect(isOwnLock(lock)).toBe(true);
   });
 
   test("returns false for lock from different host", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "different-host",
       pid: process.pid,
       startedAt: new Date().toISOString(),
@@ -141,7 +141,7 @@ describe("isOwnLock", () => {
 
   test("returns false for lock from different pid", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: os.hostname(),
       pid: process.pid + 99999, // Different PID
       startedAt: new Date().toISOString(),
@@ -151,7 +151,7 @@ describe("isOwnLock", () => {
 
   test("returns false for lock from different host and pid", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "different-host",
       pid: 99999,
       startedAt: new Date().toISOString(),
@@ -163,7 +163,7 @@ describe("isOwnLock", () => {
 describe("isDeadProcessLock", () => {
   test("returns false for lock from different host", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "different-host",
       pid: 1, // Likely always running (init)
       startedAt: new Date().toISOString(),
@@ -173,13 +173,13 @@ describe("isDeadProcessLock", () => {
   });
 
   test("returns false for lock from current process", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
     expect(isDeadProcessLock(lock)).toBe(false);
   });
 
   test("returns true for lock from dead process on same host", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: os.hostname(),
       pid: 999999999, // Very unlikely to be a real PID
       startedAt: new Date().toISOString(),
@@ -190,7 +190,7 @@ describe("isDeadProcessLock", () => {
   test("returns false for lock from live process on same host", () => {
     // Use current process PID which is guaranteed to be running
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: os.hostname(),
       pid: process.pid,
       startedAt: new Date().toISOString(),
@@ -217,7 +217,7 @@ describe("formatLockInfo", () => {
 
   test("shows age in minutes and seconds for older locks", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 minutes ago
@@ -229,7 +229,7 @@ describe("formatLockInfo", () => {
 
   test("shows age in seconds only for fresh locks", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 30 * 1000).toISOString(), // 30 seconds ago
@@ -258,7 +258,7 @@ describe("formatLockError", () => {
 
   test("indicates stale lock for old locks", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "crashed-server.local",
       pid: 99999,
       startedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(), // 45 minutes ago
@@ -272,7 +272,7 @@ describe("formatLockError", () => {
 
   test("suggests waiting for active locks", () => {
     const lock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "coworker-laptop.local",
       pid: 11111,
       startedAt: new Date().toISOString(),
@@ -286,7 +286,7 @@ describe("formatLockError", () => {
 
 describe("LockError", () => {
   test("has correct name", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
     const error = new LockError(lock);
     expect(error.name).toBe("LockError");
   });
@@ -313,7 +313,7 @@ describe("LockError", () => {
   });
 
   test("is instanceof Error", () => {
-    const lock = createLock("production");
+    const lock = createLock("prod");
     const error = new LockError(lock);
     expect(error instanceof Error).toBe(true);
     expect(error instanceof LockError).toBe(true);
@@ -324,7 +324,7 @@ describe("lock timeout constant", () => {
   test("stale threshold is 30 minutes", () => {
     // Lock at exactly 30 minutes should be stale
     const borderlineLock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 30 * 60 * 1000 - 1).toISOString(),
@@ -333,7 +333,7 @@ describe("lock timeout constant", () => {
 
     // Lock just under 30 minutes should not be stale
     const freshLock: DeploymentLock = {
-      environment: "production",
+      environment: "prod",
       host: "test-host",
       pid: 12345,
       startedAt: new Date(Date.now() - 30 * 60 * 1000 + 1000).toISOString(),

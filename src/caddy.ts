@@ -1,9 +1,19 @@
 import type { ServerConnection } from "./config.ts";
 import type { TossState } from "./state.ts";
-import { exec, execSudo, writeRemoteFile, removeRemote, escapeShellArg } from "./ssh.ts";
+import {
+  exec,
+  execSudo,
+  writeRemoteFile,
+  removeRemote,
+  escapeShellArg,
+  readRemoteFile,
+  remoteExists,
+  mkdirRemote,
+} from "./ssh.ts";
 
 const CADDYFILE_PATH = "/etc/caddy/Caddyfile";
-const CADDYFILE_TEMP_PATH = "/etc/caddy/Caddyfile.toss.tmp";
+const CADDY_CONFIG_DIR = "/etc/caddy/caddy.d";
+const CADDYFILE_MARKER = "# Managed by toss";
 
 /**
  * Configuration for generating Caddy config
@@ -37,19 +47,20 @@ export function formatIpForSslip(ip: string): string {
  * Constructs the public URL for a deployment.
  *
  * With domain:
- *   - production: https://myapp.com
- *   - pr-42: https://pr-42.preview.myapp.com
+ *   - prod: https://prod.myapp.example.com
+ *   - pr-42: https://pr-42.myapp.example.com
  *
  * Without domain (sslip.io):
- *   - production: https://production.64-23-123-45.sslip.io
- *   - pr-42: https://pr-42.64-23-123-45.sslip.io
+ *   - prod: https://prod.myapp.64-23-123-45.sslip.io
+ *   - pr-42: https://pr-42.myapp.64-23-123-45.sslip.io
  */
 export function getDeploymentUrl(
   environment: string,
+  appName: string,
   serverHost: string,
   domain?: string
 ): string {
-  const hostname = getDeploymentHostname(environment, serverHost, domain);
+  const hostname = getDeploymentHostname(environment, appName, serverHost, domain);
   return `https://${hostname}`;
 }
 
@@ -58,19 +69,17 @@ export function getDeploymentUrl(
  */
 export function getDeploymentHostname(
   environment: string,
+  appName: string,
   serverHost: string,
   domain?: string
 ): string {
   if (domain) {
-    if (environment === "production") {
-      return domain;
-    }
-    return `${environment}.preview.${domain}`;
+    return `${environment}.${appName}.${domain}`;
   }
 
   // Use sslip.io
   const sslipHost = formatIpForSslip(serverHost);
-  return `${environment}.${sslipHost}.sslip.io`;
+  return `${environment}.${appName}.${sslipHost}.sslip.io`;
 }
 
 /**
@@ -103,15 +112,15 @@ export function generateCaddyfile(
 
   const siteBlocks: string[] = [];
 
-  // Sort environments: production first, then alphabetically
+  // Sort environments: prod first, then alphabetically
   const sortedEntries = deploymentEntries.sort(([envA], [envB]) => {
-    if (envA === "production") return -1;
-    if (envB === "production") return 1;
+    if (envA === "prod") return -1;
+    if (envB === "prod") return 1;
     return envA.localeCompare(envB);
   });
 
   for (const [environment, entry] of sortedEntries) {
-    const hostname = getDeploymentHostname(environment, serverHost, domain);
+    const hostname = getDeploymentHostname(environment, appName, serverHost, domain);
     siteBlocks.push(generateSiteBlock(hostname, entry.port));
   }
 
@@ -219,12 +228,48 @@ export async function validateCaddyConfig(
 }
 
 /**
- * Writes the Caddyfile to the server.
+ * Ensures the main Caddyfile imports app configs from the toss directory.
  */
-async function writeCaddyfileTemp(connection: ServerConnection, content: string): Promise<void> {
-  await writeRemoteFile(connection, CADDYFILE_TEMP_PATH, content, {
+async function ensureCaddyMainConfig(
+  connection: ServerConnection
+): Promise<CaddyOperationResult> {
+  await mkdirRemote(connection, CADDY_CONFIG_DIR, { requiresSudo: true });
+
+  const exists = await remoteExists(connection, CADDYFILE_PATH, {
     requiresSudo: true,
   });
+
+  const requiredImport = `import ${CADDY_CONFIG_DIR}/*.caddy`;
+  const mainContent = `${CADDYFILE_MARKER}\n${requiredImport}\n`;
+
+  if (!exists) {
+    await writeRemoteFile(connection, CADDYFILE_PATH, mainContent, {
+      requiresSudo: true,
+    });
+    return { success: true };
+  }
+
+  const existingContent = await readRemoteFile(connection, CADDYFILE_PATH, {
+    requiresSudo: true,
+  });
+
+  if (existingContent.includes(requiredImport)) {
+    return { success: true };
+  }
+
+  if (existingContent.includes(CADDYFILE_MARKER)) {
+    await writeRemoteFile(connection, CADDYFILE_PATH, mainContent, {
+      requiresSudo: true,
+    });
+    return { success: true };
+  }
+
+  return {
+    success: false,
+    error:
+      "Caddyfile does not import toss app configs.\n\n" +
+      `Add this line to ${CADDYFILE_PATH}:\n  ${requiredImport}`,
+  };
 }
 
 /**
@@ -255,7 +300,7 @@ export async function ensureCaddyRunning(connection: ServerConnection): Promise<
 }
 
 /**
- * Updates the Caddyfile with the current state and reloads Caddy.
+ * Updates the app-specific Caddy config with the current state and reloads Caddy.
  *
  * This is the main function to call after deployment changes.
  * It handles:
@@ -282,33 +327,42 @@ export async function updateCaddyConfig(
     };
   }
 
-  // Generate and write the new config to a temp file
-  const caddyfileContent = generateCaddyfile(state, config);
-  await writeCaddyfileTemp(connection, caddyfileContent);
-
-  // Validate temp config before promoting
-  const validationResult = await validateCaddyConfig(connection, CADDYFILE_TEMP_PATH);
-  if (!validationResult.success) {
-    try {
-      await removeRemote(connection, CADDYFILE_TEMP_PATH, false, {
-        requiresSudo: true,
-      });
-    } catch {
-      // Best effort cleanup
-    }
-    return validationResult;
+  const ensureResult = await ensureCaddyMainConfig(connection);
+  if (!ensureResult.success) {
+    return ensureResult;
   }
 
-  // Promote temp config atomically
-  const moveResult = await execSudo(
-    connection,
-    `mv ${escapeShellArg(CADDYFILE_TEMP_PATH)} ${escapeShellArg(CADDYFILE_PATH)}`
-  );
-  if (moveResult.exitCode !== 0) {
-    return {
-      success: false,
-      error: `Failed to update Caddyfile: ${moveResult.stderr.trim() || moveResult.stdout.trim()}`,
-    };
+  // Generate and write the new app config
+  const caddyfileContent = generateCaddyfile(state, config);
+  const appConfigPath = `${CADDY_CONFIG_DIR}/${config.appName}.caddy`;
+  const hadPrevious = await remoteExists(connection, appConfigPath, {
+    requiresSudo: true,
+  });
+  const previousContent = hadPrevious
+    ? await readRemoteFile(connection, appConfigPath, { requiresSudo: true })
+    : null;
+
+  await writeRemoteFile(connection, appConfigPath, caddyfileContent, {
+    requiresSudo: true,
+  });
+
+  // Validate full config before reloading
+  const validationResult = await validateCaddyConfig(connection, CADDYFILE_PATH);
+  if (!validationResult.success) {
+    try {
+      if (previousContent !== null) {
+        await writeRemoteFile(connection, appConfigPath, previousContent, {
+          requiresSudo: true,
+        });
+      } else {
+        await removeRemote(connection, appConfigPath, false, {
+          requiresSudo: true,
+        });
+      }
+    } catch {
+      // Best effort rollback
+    }
+    return validationResult;
   }
 
   // Ensure Caddy is running

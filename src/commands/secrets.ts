@@ -5,17 +5,17 @@ import { writeRemoteFile, readRemoteFile, mkdirRemote, remoteExists } from "../s
 /**
  * Valid environment types for secrets management
  */
-type SecretsEnvironment = "production" | "preview";
+type SecretsEnvironment = "prod" | "preview";
 
 /**
- * Validates that the environment is a valid secrets environment (production or preview)
+ * Validates that the environment is a valid secrets environment (prod or preview)
  */
 function validateSecretsEnvironment(environment: string): SecretsEnvironment {
-  if (environment !== "production" && environment !== "preview") {
+  if (environment !== "prod" && environment !== "preview") {
     throw new Error(
-      `Invalid environment "${environment}". Secrets environment must be "production" or "preview".\n\n` +
-        "  production - Base secrets for production deployments\n" +
-        "  preview    - Base secrets for all non-production deployments"
+      `Invalid environment "${environment}". Secrets environment must be "prod" or "preview".\n\n` +
+        "  prod       - Base secrets for prod deployments\n" +
+        "  preview    - Base secrets for all non-prod deployments"
     );
   }
   return environment;
@@ -26,8 +26,9 @@ function validateSecretsEnvironment(environment: string): SecretsEnvironment {
  */
 function parseSecretsArgs(
   args: string[],
-  subcommand: string
-): { environment: SecretsEnvironment; filePath: string } {
+  subcommand: string,
+  options: { allowMissingFile?: boolean } = {}
+): { environment: SecretsEnvironment; filePath: string; fileProvided: boolean } {
   // Find --file or -f flag
   let filePath: string | undefined;
   let environment: string | undefined;
@@ -64,24 +65,35 @@ function parseSecretsArgs(
   environment = remainingArgs[0];
 
   if (!environment) {
+    const usage =
+      subcommand === "pull" && options.allowMissingFile
+        ? `Usage: toss secrets ${subcommand} <prod|preview> [--file <path>]`
+        : `Usage: toss secrets ${subcommand} <prod|preview> --file <path>`;
     throw new Error(
       `Missing environment argument.\n\n` +
-        `Usage: toss secrets ${subcommand} <production|preview> --file <path>\n\n` +
-        `Example: toss secrets ${subcommand} production --file .env.local`
-    );
-  }
-
-  if (!filePath) {
-    throw new Error(
-      `Missing --file flag.\n\n` +
-        `Usage: toss secrets ${subcommand} <production|preview> --file <path>\n\n` +
-        `Example: toss secrets ${subcommand} ${environment} --file .env.local`
+        `${usage}\n\n` +
+        `Example: toss secrets ${subcommand} prod --file .env.local`
     );
   }
 
   const validatedEnvironment = validateSecretsEnvironment(environment);
 
-  return { environment: validatedEnvironment, filePath };
+  let fileProvided = true;
+
+  if (!filePath) {
+    if (options.allowMissingFile) {
+      fileProvided = false;
+      filePath = validatedEnvironment === "prod" ? ".env.prod" : ".env.preview";
+    } else {
+      throw new Error(
+        `Missing --file flag.\n\n` +
+          `Usage: toss secrets ${subcommand} <prod|preview> --file <path>\n\n` +
+          `Example: toss secrets ${subcommand} ${environment} --file .env.local`
+      );
+    }
+  }
+
+  return { environment: validatedEnvironment, filePath, fileProvided };
 }
 
 /**
@@ -122,7 +134,9 @@ async function pushSecrets(args: string[]): Promise<void> {
  * Pulls secrets from the VPS to a local file
  */
 async function pullSecrets(args: string[]): Promise<void> {
-  const { environment, filePath } = parseSecretsArgs(args, "pull");
+  const { environment, filePath, fileProvided } = parseSecretsArgs(args, "pull", {
+    allowMissingFile: true,
+  });
 
   // Load config
   const { config } = await loadConfig();
@@ -150,6 +164,9 @@ async function pullSecrets(args: string[]): Promise<void> {
   });
 
   // Write to local file
+  if (!fileProvided) {
+    console.log(`→ No --file provided, using ${filePath}`);
+  }
   await Bun.write(filePath, content);
 
   console.log(`✓ Secrets saved to ${filePath}`);
@@ -161,20 +178,23 @@ async function pullSecrets(args: string[]): Promise<void> {
 function printSecretsHelp(): void {
   console.log(`toss secrets - Manage secrets on VPS
 
-Usage: toss secrets <command> <environment> --file <path>
+Usage:
+  toss secrets push <environment> --file <path>
+  toss secrets pull <environment> [--file <path>]
 
 Commands:
   push <env>    Upload a local file as secrets
   pull <env>    Download secrets to a local file
 
 Environments:
-  production    Base secrets for production deployments
-  preview       Base secrets for all non-production deployments
+  prod          Base secrets for prod deployments
+  preview       Base secrets for all non-prod deployments
 
 Examples:
-  toss secrets push production --file .env.local
+  toss secrets push prod --file .env.local
   toss secrets push preview --file .env.preview
-  toss secrets pull production --file .env
+  toss secrets pull prod --file .env
+  toss secrets pull prod
 `);
 }
 

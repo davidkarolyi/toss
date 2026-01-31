@@ -56,7 +56,7 @@ Arguments:
 Options:
   -h, --help        Show this help message
 
-Note: The production environment cannot be removed as a safety measure.
+Note: The prod environment cannot be removed as a safety measure.
 
 Examples:
   toss remove pr-42
@@ -73,13 +73,13 @@ export async function removeCommand(args: string[]): Promise<void> {
   // Validate environment name
   validateEnvironmentNameOrThrow(environment);
 
-  // Safety check: prevent removing production
-  if (environment === "production") {
+  // Safety check: prevent removing prod
+  if (environment === "prod") {
     throw new Error(
-      "Cannot remove the production environment.\n\n" +
-        "The production environment is protected from removal as a safety measure.\n" +
-        "If you really need to tear down production, you can:\n" +
-        "  1. SSH into the server: toss ssh production\n" +
+      "Cannot remove the prod environment.\n\n" +
+        "The prod environment is protected from removal as a safety measure.\n" +
+        "If you really need to tear down prod, you can:\n" +
+        "  1. SSH into the server: toss ssh prod\n" +
         "  2. Manually stop the service and remove the files"
     );
   }

@@ -36,8 +36,8 @@ describe("ssh command argument parsing logic", () => {
   }
 
   test("parses environment name", () => {
-    const result = parseArgs(["production"]);
-    expect(result.environment).toBe("production");
+    const result = parseArgs(["prod"]);
+    expect(result.environment).toBe("prod");
     expect(result.showHelp).toBe(false);
   });
 
@@ -58,13 +58,13 @@ describe("ssh command argument parsing logic", () => {
   });
 
   test("help flag with environment", () => {
-    const result = parseArgs(["production", "--help"]);
+    const result = parseArgs(["prod", "--help"]);
     expect(result.showHelp).toBe(true);
-    expect(result.environment).toBe("production");
+    expect(result.environment).toBe("prod");
   });
 
   test("throws on unknown flag", () => {
-    expect(() => parseArgs(["production", "--unknown"])).toThrow(
+    expect(() => parseArgs(["prod", "--unknown"])).toThrow(
       "Unknown option: --unknown"
     );
   });
@@ -74,7 +74,7 @@ describe("ssh command argument parsing logic", () => {
   });
 
   test("throws on extra positional argument", () => {
-    expect(() => parseArgs(["production", "extra"])).toThrow(
+    expect(() => parseArgs(["prod", "extra"])).toThrow(
       "Unexpected argument: extra"
     );
   });
@@ -94,9 +94,9 @@ describe("ssh command directory construction", () => {
     return `${buildEnvDir(appName, environment)}/current`;
   }
 
-  test("constructs current path for production", () => {
-    const path = buildCurrentPath("myapp", "production");
-    expect(path).toBe("/srv/myapp/production/current");
+  test("constructs current path for prod", () => {
+    const path = buildCurrentPath("myapp", "prod");
+    expect(path).toBe("/srv/myapp/prod/current");
   });
 
   test("constructs current path for preview environment", () => {
@@ -110,8 +110,8 @@ describe("ssh command directory construction", () => {
   });
 
   test("constructs current path with different app name", () => {
-    const path = buildCurrentPath("webapp", "production");
-    expect(path).toBe("/srv/webapp/production/current");
+    const path = buildCurrentPath("webapp", "prod");
+    expect(path).toBe("/srv/webapp/prod/current");
   });
 
   test("constructs current path with hyphenated app name", () => {
@@ -120,8 +120,8 @@ describe("ssh command directory construction", () => {
   });
 
   test("fallback env dir for legacy deployments", () => {
-    const envDir = buildEnvDir("myapp", "production");
-    expect(envDir).toBe("/srv/myapp/production");
+    const envDir = buildEnvDir("myapp", "prod");
+    expect(envDir).toBe("/srv/myapp/prod");
   });
 });
 
@@ -131,27 +131,27 @@ describe("ssh command initial shell command construction", () => {
   }
 
   test("builds command to cd and start shell for current symlink", () => {
-    const command = buildInitialCommand("/srv/myapp/production/current");
-    expect(command).toBe("cd /srv/myapp/production/current && exec $SHELL -l");
+    const command = buildInitialCommand("/srv/myapp/prod/current");
+    expect(command).toBe("cd /srv/myapp/prod/current && exec $SHELL -l");
   });
 
   test("builds command for legacy directory fallback", () => {
-    const command = buildInitialCommand("/srv/myapp/production");
-    expect(command).toBe("cd /srv/myapp/production && exec $SHELL -l");
+    const command = buildInitialCommand("/srv/myapp/prod");
+    expect(command).toBe("cd /srv/myapp/prod && exec $SHELL -l");
   });
 
   test("command uses login shell (-l flag)", () => {
-    const command = buildInitialCommand("/srv/myapp/production/current");
+    const command = buildInitialCommand("/srv/myapp/prod/current");
     expect(command).toContain("-l");
   });
 
   test("command uses exec to replace ssh process", () => {
-    const command = buildInitialCommand("/srv/myapp/production/current");
+    const command = buildInitialCommand("/srv/myapp/prod/current");
     expect(command).toContain("exec $SHELL");
   });
 
   test("command changes directory first", () => {
-    const command = buildInitialCommand("/srv/myapp/production/current");
+    const command = buildInitialCommand("/srv/myapp/prod/current");
     expect(command).toMatch(/^cd/);
   });
 });
@@ -171,7 +171,7 @@ describe("ssh command help text structure", () => {
   });
 
   test("help text includes examples", () => {
-    const examples = ["toss ssh production", "toss ssh pr-42"];
+    const examples = ["toss ssh prod", "toss ssh pr-42"];
     for (const example of examples) {
       expect(example).toMatch(/^toss ssh/);
     }
@@ -185,7 +185,7 @@ describe("ssh command error messages", () => {
 Usage: toss ssh <env>
 
 Examples:
-  toss ssh production
+  toss ssh prod
   toss ssh pr-42`;
 
     expect(errorMessage).toContain("Environment name is required");

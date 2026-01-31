@@ -33,46 +33,50 @@ describe("formatIpForSslip", () => {
 
 describe("getDeploymentHostname", () => {
   describe("with custom domain", () => {
-    test("returns bare domain for production", () => {
-      expect(getDeploymentHostname("production", "64.23.123.45", "myapp.com")).toBe("myapp.com");
+    test("returns app-scoped domain for prod", () => {
+      expect(getDeploymentHostname("prod", "myapp", "64.23.123.45", "example.com")).toBe(
+        "prod.myapp.example.com"
+      );
     });
 
-    test("returns preview subdomain for non-production", () => {
-      expect(getDeploymentHostname("pr-42", "64.23.123.45", "myapp.com")).toBe(
-        "pr-42.preview.myapp.com"
+    test("returns app-scoped domain for non-prod", () => {
+      expect(getDeploymentHostname("pr-42", "myapp", "64.23.123.45", "example.com")).toBe(
+        "pr-42.myapp.example.com"
       );
     });
 
     test("handles staging environment", () => {
-      expect(getDeploymentHostname("staging", "64.23.123.45", "myapp.com")).toBe(
-        "staging.preview.myapp.com"
+      expect(getDeploymentHostname("staging", "myapp", "64.23.123.45", "example.com")).toBe(
+        "staging.myapp.example.com"
       );
     });
   });
 
   describe("without custom domain (sslip.io)", () => {
-    test("returns sslip.io hostname for production", () => {
-      expect(getDeploymentHostname("production", "64.23.123.45")).toBe(
-        "production.64-23-123-45.sslip.io"
+    test("returns sslip.io hostname for prod", () => {
+      expect(getDeploymentHostname("prod", "myapp", "64.23.123.45")).toBe(
+        "prod.myapp.64-23-123-45.sslip.io"
       );
     });
 
     test("returns sslip.io hostname for preview", () => {
-      expect(getDeploymentHostname("pr-42", "64.23.123.45")).toBe("pr-42.64-23-123-45.sslip.io");
+      expect(getDeploymentHostname("pr-42", "myapp", "64.23.123.45")).toBe(
+        "pr-42.myapp.64-23-123-45.sslip.io"
+      );
     });
 
     test("handles different IP addresses", () => {
-      expect(getDeploymentHostname("production", "192.168.1.100")).toBe(
-        "production.192-168-1-100.sslip.io"
+      expect(getDeploymentHostname("prod", "myapp", "192.168.1.100")).toBe(
+        "prod.myapp.192-168-1-100.sslip.io"
       );
     });
 
     test("handles IPv6 addresses", () => {
-      expect(getDeploymentHostname("production", "::1")).toBe(
-        "production.--1.sslip.io"
+      expect(getDeploymentHostname("prod", "myapp", "::1")).toBe(
+        "prod.myapp.--1.sslip.io"
       );
-      expect(getDeploymentHostname("preview", "2a01:4f8:c17:b8f::2")).toBe(
-        "preview.2a01-4f8-c17-b8f--2.sslip.io"
+      expect(getDeploymentHostname("preview", "myapp", "2a01:4f8:c17:b8f::2")).toBe(
+        "preview.myapp.2a01-4f8-c17-b8f--2.sslip.io"
       );
     });
   });
@@ -80,18 +84,20 @@ describe("getDeploymentHostname", () => {
 
 describe("getDeploymentUrl", () => {
   test("adds https protocol", () => {
-    expect(getDeploymentUrl("production", "64.23.123.45", "myapp.com")).toBe("https://myapp.com");
+    expect(getDeploymentUrl("prod", "myapp", "64.23.123.45", "example.com")).toBe(
+      "https://prod.myapp.example.com"
+    );
   });
 
   test("adds https protocol for sslip.io", () => {
-    expect(getDeploymentUrl("production", "64.23.123.45")).toBe(
-      "https://production.64-23-123-45.sslip.io"
+    expect(getDeploymentUrl("prod", "myapp", "64.23.123.45")).toBe(
+      "https://prod.myapp.64-23-123-45.sslip.io"
     );
   });
 
   test("handles preview with domain", () => {
-    expect(getDeploymentUrl("pr-123", "64.23.123.45", "example.org")).toBe(
-      "https://pr-123.preview.example.org"
+    expect(getDeploymentUrl("pr-123", "myapp", "64.23.123.45", "example.org")).toBe(
+      "https://pr-123.myapp.example.org"
     );
   });
 });
@@ -116,11 +122,11 @@ describe("generateCaddyfile", () => {
     expect(caddyfile).toContain("# No deployments yet");
   });
 
-  test("generates config for single production deployment with domain", () => {
+  test("generates config for single prod deployment with domain", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
       },
       appliedDependencies: [],
       lock: null,
@@ -128,21 +134,21 @@ describe("generateCaddyfile", () => {
 
     const config: CaddyGeneratorConfig = {
       ...baseConfig,
-      domain: "myapp.com",
+      domain: "example.com",
     };
 
     const caddyfile = generateCaddyfile(state, config);
 
     expect(caddyfile).toContain("# Managed by toss for myapp");
-    expect(caddyfile).toContain("myapp.com {");
+    expect(caddyfile).toContain("prod.myapp.example.com {");
     expect(caddyfile).toContain("reverse_proxy localhost:3000");
   });
 
-  test("generates config for production with sslip.io", () => {
+  test("generates config for prod with sslip.io", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
       },
       appliedDependencies: [],
       lock: null,
@@ -150,7 +156,7 @@ describe("generateCaddyfile", () => {
 
     const caddyfile = generateCaddyfile(state, baseConfig);
 
-    expect(caddyfile).toContain("production.64-23-123-45.sslip.io {");
+    expect(caddyfile).toContain("prod.myapp.64-23-123-45.sslip.io {");
     expect(caddyfile).toContain("reverse_proxy localhost:3000");
   });
 
@@ -158,7 +164,7 @@ describe("generateCaddyfile", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
         "pr-42": { port: 3001 },
         "pr-123": { port: 3002 },
       },
@@ -168,28 +174,28 @@ describe("generateCaddyfile", () => {
 
     const config: CaddyGeneratorConfig = {
       ...baseConfig,
-      domain: "myapp.com",
+      domain: "example.com",
     };
 
     const caddyfile = generateCaddyfile(state, config);
 
-    expect(caddyfile).toContain("myapp.com {");
+    expect(caddyfile).toContain("prod.myapp.example.com {");
     expect(caddyfile).toContain("reverse_proxy localhost:3000");
 
-    expect(caddyfile).toContain("pr-42.preview.myapp.com {");
+    expect(caddyfile).toContain("pr-42.myapp.example.com {");
     expect(caddyfile).toContain("reverse_proxy localhost:3001");
 
-    expect(caddyfile).toContain("pr-123.preview.myapp.com {");
+    expect(caddyfile).toContain("pr-123.myapp.example.com {");
     expect(caddyfile).toContain("reverse_proxy localhost:3002");
   });
 
-  test("sorts production first, then alphabetically", () => {
+  test("sorts prod first, then alphabetically", () => {
     const state: TossState = {
       origin: null,
       deployments: {
         "pr-99": { port: 3003 },
         "pr-42": { port: 3001 },
-        production: { port: 3000 },
+        prod: { port: 3000 },
         "pr-123": { port: 3002 },
       },
       appliedDependencies: [],
@@ -198,15 +204,15 @@ describe("generateCaddyfile", () => {
 
     const caddyfile = generateCaddyfile(state, baseConfig);
 
-    const productionIndex = caddyfile.indexOf("production.");
+    const prodIndex = caddyfile.indexOf("prod.");
     const pr42Index = caddyfile.indexOf("pr-42.");
     const pr99Index = caddyfile.indexOf("pr-99.");
     const pr123Index = caddyfile.indexOf("pr-123.");
 
-    // Production should come first
-    expect(productionIndex).toBeLessThan(pr42Index);
-    expect(productionIndex).toBeLessThan(pr99Index);
-    expect(productionIndex).toBeLessThan(pr123Index);
+    // Prod should come first
+    expect(prodIndex).toBeLessThan(pr42Index);
+    expect(prodIndex).toBeLessThan(pr99Index);
+    expect(prodIndex).toBeLessThan(pr123Index);
 
     // Then alphabetical: pr-123, pr-42, pr-99
     expect(pr123Index).toBeLessThan(pr42Index);
@@ -217,7 +223,7 @@ describe("generateCaddyfile", () => {
     const state: TossState = {
       origin: null,
       deployments: {
-        production: { port: 3000 },
+        prod: { port: 3000 },
       },
       appliedDependencies: [],
       lock: null,
@@ -231,7 +237,9 @@ describe("generateCaddyfile", () => {
     const caddyfile = generateCaddyfile(state, config);
 
     // Check structure
-    expect(caddyfile).toMatch(/example\.com \{[\s\S]*reverse_proxy localhost:3000[\s\S]*\}/);
+    expect(caddyfile).toMatch(
+      /prod\.myapp\.example\.com \{[\s\S]*reverse_proxy localhost:3000[\s\S]*\}/
+    );
   });
 
   test("handles complex environment names", () => {
@@ -251,7 +259,7 @@ describe("generateCaddyfile", () => {
 
     const caddyfile = generateCaddyfile(state, config);
 
-    expect(caddyfile).toContain("feature-branch-123-abc.preview.app.io {");
+    expect(caddyfile).toContain("feature-branch-123-abc.myapp.app.io {");
     expect(caddyfile).toContain("reverse_proxy localhost:3005");
   });
 });

@@ -32,7 +32,7 @@ async function gatherDeployments(
     const port = getPortForEnvironment(state, environment);
     if (port === undefined) continue;
 
-    const url = getDeploymentUrl(environment, serverHost, domain);
+    const url = getDeploymentUrl(environment, appName, serverHost, domain);
 
     // Get service status
     let status = "unknown";
@@ -51,10 +51,10 @@ async function gatherDeployments(
     });
   }
 
-  // Sort: production first, then alphabetically
+  // Sort: prod first, then alphabetically
   deployments.sort((deploymentA, deploymentB) => {
-    if (deploymentA.environment === "production") return -1;
-    if (deploymentB.environment === "production") return 1;
+    if (deploymentA.environment === "prod") return -1;
+    if (deploymentB.environment === "prod") return 1;
     return deploymentA.environment.localeCompare(deploymentB.environment);
   });
 
@@ -89,7 +89,7 @@ function renderTable(deployments: DeploymentInfo[]): void {
     console.log("No deployments found.");
     console.log("");
     console.log("Deploy with:");
-    console.log("  toss deploy production");
+    console.log("  toss deploy prod");
     return;
   }
 
@@ -152,7 +152,7 @@ export async function listCommand(args: string[]): Promise<void> {
 Show all deployments for the current app.
 
 Displays a table with:
-  - Environment name (e.g., production, pr-42)
+  - Environment name (e.g., prod, pr-42)
   - Port number
   - Service status (running, stopped, failed)
   - Public URL

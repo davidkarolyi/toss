@@ -50,33 +50,33 @@ describe("remove command path construction", () => {
   });
 });
 
-describe("production environment protection", () => {
-  test("production is the protected environment name", () => {
-    // The remove command refuses to remove production
-    const protectedEnvironment = "production";
-    expect(protectedEnvironment).toBe("production");
+describe("prod environment protection", () => {
+  test("prod is the protected environment name", () => {
+    // The remove command refuses to remove prod
+    const protectedEnvironment = "prod";
+    expect(protectedEnvironment).toBe("prod");
   });
 
   test("other environments can be removed", () => {
     const removableEnvironments = ["pr-42", "staging", "dev", "preview-123"];
     for (const env of removableEnvironments) {
-      expect(env).not.toBe("production");
+      expect(env).not.toBe("prod");
     }
   });
 });
 
 describe("remove command error messages", () => {
-  test("production protection error includes manual override instructions", () => {
-    const errorMessage = `Cannot remove the production environment.
+  test("prod protection error includes manual override instructions", () => {
+    const errorMessage = `Cannot remove the prod environment.
 
-The production environment is protected from removal as a safety measure.
-If you really need to tear down production, you can:
-  1. SSH into the server: toss ssh production
+The prod environment is protected from removal as a safety measure.
+If you really need to tear down prod, you can:
+  1. SSH into the server: toss ssh prod
   2. Manually stop the service and remove the files`;
 
-    expect(errorMessage).toContain("Cannot remove the production environment");
+    expect(errorMessage).toContain("Cannot remove the prod environment");
     expect(errorMessage).toContain("safety measure");
-    expect(errorMessage).toContain("toss ssh production");
+    expect(errorMessage).toContain("toss ssh prod");
     expect(errorMessage).toContain("Manually stop");
   });
 
@@ -138,7 +138,7 @@ Arguments:
 Options:
   -h, --help        Show this help message
 
-Note: The production environment cannot be removed as a safety measure.
+Note: The prod environment cannot be removed as a safety measure.
 
 Examples:
   toss remove pr-42
@@ -148,7 +148,7 @@ Examples:
     expect(helpText).toContain("Usage:");
     expect(helpText).toContain("Arguments:");
     expect(helpText).toContain("Options:");
-    expect(helpText).toContain("production environment cannot be removed");
+    expect(helpText).toContain("prod environment cannot be removed");
     expect(helpText).toContain("Examples:");
   });
 });

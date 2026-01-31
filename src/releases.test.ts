@@ -42,58 +42,58 @@ describe("generateReleaseTimestamp", () => {
 
 describe("getReleaseDirectory", () => {
   test("constructs release directory path correctly", () => {
-    const result = getReleaseDirectory("myapp", "production", "20260130_143022");
-    expect(result).toBe("/srv/myapp/production/releases/20260130_143022");
+    const result = getReleaseDirectory("myapp", "prod", "20260130_143022");
+    expect(result).toBe("/srv/myapp/prod/releases/20260130_143022");
   });
 
   test("handles different environments", () => {
-    const prod = getReleaseDirectory("myapp", "production", "20260130_143022");
+    const prod = getReleaseDirectory("myapp", "prod", "20260130_143022");
     const preview = getReleaseDirectory("myapp", "pr-42", "20260130_143022");
 
-    expect(prod).toBe("/srv/myapp/production/releases/20260130_143022");
+    expect(prod).toBe("/srv/myapp/prod/releases/20260130_143022");
     expect(preview).toBe("/srv/myapp/pr-42/releases/20260130_143022");
   });
 
   test("handles different app names", () => {
-    const app1 = getReleaseDirectory("app-one", "production", "20260130_143022");
-    const app2 = getReleaseDirectory("app-two", "production", "20260130_143022");
+    const app1 = getReleaseDirectory("app-one", "prod", "20260130_143022");
+    const app2 = getReleaseDirectory("app-two", "prod", "20260130_143022");
 
-    expect(app1).toBe("/srv/app-one/production/releases/20260130_143022");
-    expect(app2).toBe("/srv/app-two/production/releases/20260130_143022");
+    expect(app1).toBe("/srv/app-one/prod/releases/20260130_143022");
+    expect(app2).toBe("/srv/app-two/prod/releases/20260130_143022");
   });
 });
 
 describe("getEnvDirectory", () => {
   test("returns the environment directory path", () => {
-    expect(getEnvDirectory("myapp", "production")).toBe("/srv/myapp/production");
+    expect(getEnvDirectory("myapp", "prod")).toBe("/srv/myapp/prod");
     expect(getEnvDirectory("myapp", "pr-42")).toBe("/srv/myapp/pr-42");
   });
 });
 
 describe("getReleasesDirectory", () => {
   test("returns the releases directory path", () => {
-    expect(getReleasesDirectory("myapp", "production")).toBe("/srv/myapp/production/releases");
+    expect(getReleasesDirectory("myapp", "prod")).toBe("/srv/myapp/prod/releases");
     expect(getReleasesDirectory("myapp", "pr-42")).toBe("/srv/myapp/pr-42/releases");
   });
 });
 
 describe("getPreserveDirectory", () => {
   test("returns the preserve directory path", () => {
-    expect(getPreserveDirectory("myapp", "production")).toBe("/srv/myapp/production/preserve");
+    expect(getPreserveDirectory("myapp", "prod")).toBe("/srv/myapp/prod/preserve");
     expect(getPreserveDirectory("myapp", "pr-42")).toBe("/srv/myapp/pr-42/preserve");
   });
 });
 
 describe("getCurrentSymlinkPath", () => {
   test("returns the current symlink path", () => {
-    expect(getCurrentSymlinkPath("myapp", "production")).toBe("/srv/myapp/production/current");
+    expect(getCurrentSymlinkPath("myapp", "prod")).toBe("/srv/myapp/prod/current");
     expect(getCurrentSymlinkPath("myapp", "pr-42")).toBe("/srv/myapp/pr-42/current");
   });
 });
 
 describe("getCurrentWorkingDirectory", () => {
   test("returns the current working directory (same as symlink)", () => {
-    expect(getCurrentWorkingDirectory("myapp", "production")).toBe("/srv/myapp/production/current");
+    expect(getCurrentWorkingDirectory("myapp", "prod")).toBe("/srv/myapp/prod/current");
     expect(getCurrentWorkingDirectory("myapp", "pr-42")).toBe("/srv/myapp/pr-42/current");
   });
 });

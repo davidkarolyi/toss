@@ -5,7 +5,7 @@
  * - Lowercase letters, numbers, and hyphens only (a-z, 0-9, -)
  * - Must start with a letter
  * - Maximum 63 characters
- * - "production" is a reserved name for the production environment
+ * - "prod" is the reserved name for the production environment
  */
 
 /**
@@ -41,6 +41,14 @@ export function validateEnvironmentName(name: string): EnvironmentValidationResu
     return {
       valid: false,
       error: "Environment name cannot be empty.",
+    };
+  }
+
+  // Disallow deprecated production name (any case)
+  if (name.toLowerCase() === "production") {
+    return {
+      valid: false,
+      error: 'Environment name "production" is not supported. Use "prod" instead.',
     };
   }
 
@@ -126,7 +134,7 @@ export function validateEnvironmentNameOrThrow(name: string): void {
         "  - Lowercase letters, numbers, and hyphens only (a-z, 0-9, -)\n" +
         "  - Must start with a letter\n" +
         "  - Maximum 63 characters\n\n" +
-        "Examples: production, staging, pr-42, feature-auth"
+        "Examples: prod, staging, pr-42, feature-auth"
     );
   }
 }

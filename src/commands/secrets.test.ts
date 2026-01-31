@@ -13,9 +13,9 @@ import { join } from "node:path";
 
 describe("secrets command argument parsing", () => {
   describe("environment validation", () => {
-    test("accepts production as valid environment", () => {
-      // This is implicitly tested through the command - production is valid
-      expect("production").toBe("production");
+    test("accepts prod as valid environment", () => {
+      // This is implicitly tested through the command - prod is valid
+      expect("prod").toBe("prod");
     });
 
     test("accepts preview as valid environment", () => {
@@ -28,7 +28,7 @@ describe("secrets command argument parsing", () => {
       // These are tested through error messages
       const invalidEnvironments = ["staging", "pr-42", "dev", "test"];
       for (const env of invalidEnvironments) {
-        expect(env).not.toBe("production");
+        expect(env).not.toBe("prod");
         expect(env).not.toBe("preview");
       }
     });
@@ -36,7 +36,7 @@ describe("secrets command argument parsing", () => {
 
   describe("file path parsing", () => {
     test("supports --file flag format", () => {
-      const args = ["production", "--file", ".env.local"];
+      const args = ["prod", "--file", ".env.local"];
       expect(args).toContain("--file");
       expect(args[args.indexOf("--file") + 1]).toBe(".env.local");
     });
@@ -48,7 +48,7 @@ describe("secrets command argument parsing", () => {
     });
 
     test("supports -f shorthand flag", () => {
-      const args = ["production", "-f", ".env.local"];
+      const args = ["prod", "-f", ".env.local"];
       expect(args).toContain("-f");
       expect(args[args.indexOf("-f") + 1]).toBe(".env.local");
     });
@@ -56,11 +56,11 @@ describe("secrets command argument parsing", () => {
 });
 
 describe("secrets file path construction", () => {
-  test("constructs production secrets path correctly", () => {
+  test("constructs prod secrets path correctly", () => {
     const appName = "myapp";
-    const environment = "production";
+    const environment = "prod";
     const expectedPath = `/srv/${appName}/.toss/secrets/${environment}.env`;
-    expect(expectedPath).toBe("/srv/myapp/.toss/secrets/production.env");
+    expect(expectedPath).toBe("/srv/myapp/.toss/secrets/prod.env");
   });
 
   test("constructs preview secrets path correctly", () => {
@@ -81,19 +81,21 @@ describe("secrets command help", () => {
   test("help text includes push command", () => {
     const helpText = `toss secrets - Manage secrets on VPS
 
-Usage: toss secrets <command> <environment> --file <path>
+Usage:
+  toss secrets push <environment> --file <path>
+  toss secrets pull <environment> [--file <path>]
 
 Commands:
   push <env>    Upload a local file as secrets
   pull <env>    Download secrets to a local file
 
 Environments:
-  production    Base secrets for production deployments
-  preview       Base secrets for all non-production deployments`;
+  prod    Base secrets for prod deployments
+  preview       Base secrets for all non-prod deployments`;
 
     expect(helpText).toContain("push <env>");
     expect(helpText).toContain("pull <env>");
-    expect(helpText).toContain("production");
+    expect(helpText).toContain("prod");
     expect(helpText).toContain("preview");
   });
 });
@@ -134,39 +136,39 @@ describe("error messages", () => {
   test("missing environment error includes usage example", () => {
     const errorMessage = `Missing environment argument.
 
-Usage: toss secrets push <production|preview> --file <path>
+Usage: toss secrets push <prod|preview> --file <path>
 
-Example: toss secrets push production --file .env.local`;
+Example: toss secrets push prod --file .env.local`;
 
     expect(errorMessage).toContain("Usage:");
     expect(errorMessage).toContain("Example:");
-    expect(errorMessage).toContain("production|preview");
+    expect(errorMessage).toContain("prod|preview");
   });
 
   test("missing file flag error includes usage example", () => {
     const errorMessage = `Missing --file flag.
 
-Usage: toss secrets push <production|preview> --file <path>
+Usage: toss secrets push <prod|preview> --file <path>
 
-Example: toss secrets push production --file .env.local`;
+Example: toss secrets push prod --file .env.local`;
 
     expect(errorMessage).toContain("--file");
     expect(errorMessage).toContain("Usage:");
   });
 
   test("invalid environment error lists valid options", () => {
-    const errorMessage = `Invalid environment "staging". Secrets environment must be "production" or "preview".
+    const errorMessage = `Invalid environment "staging". Secrets environment must be "prod" or "preview".
 
-  production - Base secrets for production deployments
-  preview    - Base secrets for all non-production deployments`;
+  prod - Base secrets for prod deployments
+  preview    - Base secrets for all non-prod deployments`;
 
-    expect(errorMessage).toContain("production");
+    expect(errorMessage).toContain("prod");
     expect(errorMessage).toContain("preview");
   });
 
   test("remote file not found error includes push suggestion", () => {
-    const environment = "production";
-    const remotePath = "/srv/myapp/.toss/secrets/production.env";
+    const environment = "prod";
+    const remotePath = "/srv/myapp/.toss/secrets/prod.env";
     const errorMessage = `No secrets file found for "${environment}".
 
 Expected location: ${remotePath}
