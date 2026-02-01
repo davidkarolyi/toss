@@ -7,6 +7,7 @@ import { logsCommand } from "./commands/logs.ts";
 import { sshCommand } from "./commands/ssh.ts";
 import { secretsCommand } from "./commands/secrets.ts";
 import { rollbackCommand } from "./commands/rollback.ts";
+import { destroyCommand } from "./commands/destroy.ts";
 
 const VERSION = "0.1.0";
 
@@ -24,6 +25,7 @@ const commands: Record<string, CommandHandler> = {
   ssh: sshCommand,
   secrets: secretsCommand,
   rollback: rollbackCommand,
+  destroy: destroyCommand,
 };
 
 function printHelp(): void {
@@ -36,6 +38,7 @@ Commands:
   deploy <env>            Deploy to environment (e.g., prod, pr-42)
   rollback <env> [release] Roll back to a previous release
   remove <env>            Remove an environment
+  destroy <app>           Destroy an app (all environments)
   list                    List running deployments
   status                  Status summary
   logs <env>              Tail logs for environment
@@ -52,6 +55,7 @@ Examples:
   toss deploy prod        Deploy to prod
   toss deploy pr-42       Deploy a preview environment
   toss rollback prod      Roll back to previous release
+  toss destroy myapp      Destroy an app and all environments
   toss logs prod          Stream prod logs
 `);
 }

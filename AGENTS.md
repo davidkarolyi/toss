@@ -26,6 +26,7 @@ toss deploy <env>                      # deploy to environment (e.g., prod, pr-4
 toss deploy <env> -s KEY=VALUE         # deploy with per-environment secret override
 toss rollback <env> [release]          # roll back to previous or specific release
 toss remove <env>                      # remove an environment (prod cannot be removed)
+toss destroy <app>                     # destroy an app and all environments
 toss list                              # list running deployments
 toss status                            # status summary (config + deployments + overrides)
 toss logs <env>                        # tail logs for environment
