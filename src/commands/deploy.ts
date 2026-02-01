@@ -563,6 +563,9 @@ export async function deployCommand(args: string[]): Promise<void> {
         appName: config.app,
         serverHost,
         domain: config.domain,
+        prodDomain: config.prodDomain,
+        prodAliases: config.prodAliases,
+        prodAliasRedirect: config.prodAliasRedirect,
       });
 
       if (!caddyResult.success) {
@@ -587,7 +590,9 @@ export async function deployCommand(args: string[]): Promise<void> {
       }
 
       // 15. Print success
-      const url = getDeploymentUrl(environment, config.app, serverHost, config.domain);
+      const url = getDeploymentUrl(environment, config.app, serverHost, config.domain, {
+        prodDomain: config.prodDomain,
+      });
       const serviceName = getServiceName(config.app, environment);
 
       console.log("");

@@ -1,8 +1,9 @@
 import * as readline from "node:readline";
 import { existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { parseServerString, type TossConfig } from "../config.ts";
+import { parseServerString, validatePersistentDirPath, type TossConfig } from "../config.ts";
 import { testConnection } from "../ssh.ts";
+import { normalizeDomainForApp } from "../caddy.ts";
 import {
   provisionServer,
   verifyElevatedAccess,
@@ -125,6 +126,74 @@ function validateDomain(domain: string): string | null {
   return null;
 }
 
+function parseCommaList(input: string): string[] {
+  return input
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+}
+
+async function promptDomainList(
+  readlineInterface: readline.Interface,
+  question: string
+): Promise<string[]> {
+  while (true) {
+    const value = await prompt(readlineInterface, question, { required: false });
+    if (!value) {
+      return [];
+    }
+
+    const items = parseCommaList(value);
+    if (items.length === 0) {
+      return [];
+    }
+
+    const invalid = items.filter((item) => validateDomain(item));
+    if (invalid.length > 0) {
+      console.log(`  Invalid domain(s): ${invalid.join(", ")}`);
+      continue;
+    }
+
+    return items;
+  }
+}
+
+async function promptPersistentDirs(
+  readlineInterface: readline.Interface,
+  question: string
+): Promise<string[]> {
+  while (true) {
+    const value = await prompt(readlineInterface, question, { required: false });
+    if (!value) {
+      return [];
+    }
+
+    const items = parseCommaList(value);
+    if (items.length === 0) {
+      return [];
+    }
+
+    const normalized: string[] = [];
+    const errors: string[] = [];
+
+    for (const item of items) {
+      const result = validatePersistentDirPath(item);
+      if (!result.valid) {
+        errors.push(`${item} ${result.error}`);
+      } else if (result.normalized) {
+        normalized.push(result.normalized);
+      }
+    }
+
+    if (errors.length > 0) {
+      console.log(`  Invalid path(s): ${errors.join(", ")}`);
+      continue;
+    }
+
+    return normalized;
+  }
+}
+
 /**
  * Parses deploy script input into an array of commands
  * Supports:
@@ -149,9 +218,10 @@ function generateGitHubActionsWorkflow(
   serverHost: string,
   appName: string
 ): string {
+  const appDomain = domain ? normalizeDomainForApp(appName, domain) : undefined;
   // For preview URL comments, use domain if available, otherwise construct sslip.io URL pattern
-  const previewUrlPattern = domain
-    ? `https://pr-\${{ github.event.pull_request.number }}.${appName}.${domain}`
+  const previewUrlPattern = appDomain
+    ? `https://pr-\${{ github.event.pull_request.number }}.${appDomain}`
     : `https://pr-\${{ github.event.pull_request.number }}.${appName}.${serverHost.replace(/\./g, "-")}.sslip.io`;
 
   return `name: Deploy
@@ -361,6 +431,47 @@ export async function initCommand(_args: string[]): Promise<void> {
     });
     console.log("");
 
+    let prodDomain: string | undefined;
+    let prodAliases: string[] | undefined;
+    let prodAliasRedirect: boolean | undefined;
+
+    if (domain) {
+      const appDomain = normalizeDomainForApp(appName, domain);
+
+      console.log("Prod hostname (optional). This only affects prod.");
+      console.log(`Default: prod.${appDomain}`);
+      console.log(`Use ${domain} for apex.`);
+      console.log("");
+
+      const prodDomainInput = await prompt(readlineInterface, "Prod hostname (optional)", {
+        required: false,
+        validate: (value) => (value ? validateDomain(value) : null),
+      });
+      console.log("");
+      if (prodDomainInput) {
+        prodDomain = prodDomainInput;
+      }
+
+      console.log("Prod aliases (optional). Comma-separated, e.g., www.example.com");
+      console.log("");
+
+      const aliasList = await promptDomainList(
+        readlineInterface,
+        "Prod aliases (optional)"
+      );
+      console.log("");
+
+      if (aliasList.length > 0) {
+        prodAliases = aliasList;
+        prodAliasRedirect = await confirm(
+          readlineInterface,
+          "Redirect aliases to the primary prod hostname?",
+          true
+        );
+        console.log("");
+      }
+    }
+
     // Step 4: Start command
     console.log("How do you start your app? This command will be used in the systemd service.");
     console.log("Examples: npm start, bun run start, node server.js");
@@ -382,7 +493,18 @@ export async function initCommand(_args: string[]): Promise<void> {
     const deployScript = parseDeployScript(deployScriptInput);
     console.log("");
 
-    // Step 6: GitHub Actions (optional)
+    // Step 6: Persistent directories
+    console.log("Which directories should be preserved across releases?");
+    console.log("Optional. Comma-separated relative paths, e.g., data, uploads");
+    console.log("");
+
+    const persistentDirs = await promptPersistentDirs(
+      readlineInterface,
+      "Persistent dirs (optional)"
+    );
+    console.log("");
+
+    // Step 7: GitHub Actions (optional)
     console.log("Would you like to set up GitHub Actions for automated deployments?");
     console.log("This will create a workflow file at .github/workflows/toss.yml");
     console.log("");
@@ -426,6 +548,18 @@ export async function initCommand(_args: string[]): Promise<void> {
     if (domain) {
       config.domain = domain;
     }
+    if (prodDomain) {
+      config.prodDomain = prodDomain;
+    }
+    if (prodAliases && prodAliases.length > 0) {
+      config.prodAliases = prodAliases;
+      if (typeof prodAliasRedirect === "boolean") {
+        config.prodAliasRedirect = prodAliasRedirect;
+      }
+    }
+    if (persistentDirs.length > 0) {
+      config.persistentDirs = persistentDirs;
+    }
 
     writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
     console.log("Created toss.json");
@@ -450,10 +584,29 @@ export async function initCommand(_args: string[]): Promise<void> {
 
     // DNS instructions (only if domain is set)
     if (domain) {
+      const appDomain = normalizeDomainForApp(appName, domain);
+      const prodHostname = prodDomain ? prodDomain : `prod.${appDomain}`;
+      const aliasHostnames = prodAliases ?? [];
+      const extraHosts = new Set<string>();
+      const appDomainLower = appDomain.toLowerCase();
+
+      for (const hostname of [prodHostname, ...aliasHostnames]) {
+        const hostnameLower = hostname.toLowerCase();
+        if (hostnameLower === appDomainLower || !hostnameLower.endsWith(`.${appDomainLower}`)) {
+          extraHosts.add(hostname);
+        }
+      }
+
       console.log(`${stepNumber}. Add DNS records:`);
-      console.log(`   A  *.${appName}.${domain}  → ${connection.host}`);
-      console.log(`   Example prod:    prod.${appName}.${domain}`);
-      console.log(`   Example preview: pr-42.${appName}.${domain}`);
+      console.log(`   A  *.${appDomain}  → ${connection.host}`);
+      for (const hostname of extraHosts) {
+        console.log(`   A  ${hostname}  → ${connection.host}`);
+      }
+      console.log(`   Example prod:    ${prodHostname}`);
+      console.log(`   Example preview: pr-42.${appDomain}`);
+      if (aliasHostnames.length > 0) {
+        console.log(`   Example aliases: ${aliasHostnames.join(", ")}`);
+      }
       console.log("");
       stepNumber++;
     }

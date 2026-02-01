@@ -36,7 +36,10 @@ async function gatherDeploymentStatus(
   state: TossState,
   serverHost: string,
   appName: string,
-  domain?: string
+  domain?: string,
+  options?: {
+    prodDomain?: string;
+  }
 ): Promise<DeploymentStatusInfo[]> {
   const environments = getDeployedEnvironments(state);
   const deployments: DeploymentStatusInfo[] = [];
@@ -46,7 +49,7 @@ async function gatherDeploymentStatus(
     const port = getPortForEnvironment(state, environment);
     if (port === undefined) continue;
 
-    const url = getDeploymentUrl(environment, appName, serverHost, domain);
+    const url = getDeploymentUrl(environment, appName, serverHost, domain, options);
 
     // Get service status
     let status = "unknown";
@@ -124,9 +127,12 @@ function renderConfig(
   serverHost: string,
   domain: string | undefined,
   startCommand: string,
-  deployScript: string[]
+  deployScript: string[],
+  options?: {
+    prodDomain?: string;
+  }
 ): void {
-  const prodHostname = getDeploymentHostname("prod", appName, serverHost, domain);
+  const prodHostname = getDeploymentHostname("prod", appName, serverHost, domain, options);
   const previewHostname = getDeploymentHostname(
     "pr-<number>",
     appName,
@@ -248,7 +254,10 @@ Examples:
     serverHost,
     config.domain,
     config.startCommand,
-    config.deployScript
+    config.deployScript,
+    {
+      prodDomain: config.prodDomain,
+    }
   );
 
   // Test connection
@@ -286,7 +295,10 @@ Examples:
     state,
     serverHost,
     config.app,
-    config.domain
+    config.domain,
+    {
+      prodDomain: config.prodDomain,
+    }
   );
 
   renderDeployments(deployments);

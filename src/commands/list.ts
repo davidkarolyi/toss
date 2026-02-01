@@ -23,7 +23,10 @@ async function gatherDeployments(
   state: TossState,
   serverHost: string,
   appName: string,
-  domain?: string
+  domain?: string,
+  options?: {
+    prodDomain?: string;
+  }
 ): Promise<DeploymentInfo[]> {
   const environments = getDeployedEnvironments(state);
   const deployments: DeploymentInfo[] = [];
@@ -32,7 +35,7 @@ async function gatherDeployments(
     const port = getPortForEnvironment(state, environment);
     if (port === undefined) continue;
 
-    const url = getDeploymentUrl(environment, appName, serverHost, domain);
+    const url = getDeploymentUrl(environment, appName, serverHost, domain, options);
 
     // Get service status
     let status = "unknown";
@@ -177,7 +180,10 @@ Examples:
     state,
     serverHost,
     config.app,
-    config.domain
+    config.domain,
+    {
+      prodDomain: config.prodDomain,
+    }
   );
 
   // Render the table

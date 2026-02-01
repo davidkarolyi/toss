@@ -160,6 +160,9 @@ export async function removeCommand(args: string[]): Promise<void> {
     appName: config.app,
     serverHost,
     domain: config.domain,
+    prodDomain: config.prodDomain,
+    prodAliases: config.prodAliases,
+    prodAliasRedirect: config.prodAliasRedirect,
   });
 
   if (!caddyResult.success) {

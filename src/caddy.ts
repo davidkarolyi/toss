@@ -22,6 +22,9 @@ export interface CaddyGeneratorConfig {
   appName: string;
   serverHost: string;
   domain?: string;
+  prodDomain?: string;
+  prodAliases?: string[];
+  prodAliasRedirect?: boolean;
 }
 
 /**
@@ -58,9 +61,12 @@ export function getDeploymentUrl(
   environment: string,
   appName: string,
   serverHost: string,
-  domain?: string
+  domain?: string,
+  options?: {
+    prodDomain?: string;
+  }
 ): string {
-  const hostname = getDeploymentHostname(environment, appName, serverHost, domain);
+  const hostname = getDeploymentHostname(environment, appName, serverHost, domain, options);
   return `https://${hostname}`;
 }
 
@@ -71,15 +77,36 @@ export function getDeploymentHostname(
   environment: string,
   appName: string,
   serverHost: string,
-  domain?: string
+  domain?: string,
+  options?: {
+    prodDomain?: string;
+  }
 ): string {
-  if (domain) {
-    return `${environment}.${appName}.${domain}`;
+  return getDeploymentHosts(environment, appName, serverHost, domain, options).primary;
+}
+
+/**
+ * Normalizes a custom domain to avoid duplicating the app name.
+ *
+ * If the domain already starts with the app name (e.g., app "webref"
+ * and domain "webref.ai"), we treat it as already app-scoped.
+ */
+export function normalizeDomainForApp(appName: string, domain: string): string {
+  const trimmedDomain = domain.trim();
+  const trimmedApp = appName.trim();
+
+  if (!trimmedDomain || !trimmedApp) {
+    return trimmedDomain;
   }
 
-  // Use sslip.io
-  const sslipHost = formatIpForSslip(serverHost);
-  return `${environment}.${appName}.${sslipHost}.sslip.io`;
+  const domainLower = trimmedDomain.toLowerCase();
+  const appLower = trimmedApp.toLowerCase();
+
+  if (domainLower.startsWith(`${appLower}.`)) {
+    return trimmedDomain;
+  }
+
+  return `${trimmedApp}.${trimmedDomain}`;
 }
 
 /**
@@ -88,6 +115,12 @@ export function getDeploymentHostname(
 function generateSiteBlock(hostname: string, port: number): string {
   return `${hostname} {
     reverse_proxy localhost:${port}
+}`;
+}
+
+function generateRedirectBlock(sourceHostname: string, targetHostname: string): string {
+  return `${sourceHostname} {
+    redir https://${targetHostname}{uri} permanent
 }`;
 }
 
@@ -101,7 +134,8 @@ export function generateCaddyfile(
   state: TossState,
   config: CaddyGeneratorConfig
 ): string {
-  const { appName, serverHost, domain } = config;
+  const { appName, serverHost, domain, prodDomain, prodAliases, prodAliasRedirect } =
+    config;
 
   const deploymentEntries = Object.entries(state.deployments);
 
@@ -120,11 +154,94 @@ export function generateCaddyfile(
   });
 
   for (const [environment, entry] of sortedEntries) {
-    const hostname = getDeploymentHostname(environment, appName, serverHost, domain);
-    siteBlocks.push(generateSiteBlock(hostname, entry.port));
+    const hosts = getDeploymentHosts(environment, appName, serverHost, domain, {
+      prodDomain,
+      prodAliases,
+    });
+
+    if (
+      environment === "prod" &&
+      prodAliasRedirect &&
+      hosts.aliases.length > 0
+    ) {
+      for (const alias of hosts.aliases) {
+        siteBlocks.push(generateRedirectBlock(alias, hosts.primary));
+      }
+      siteBlocks.push(generateSiteBlock(hosts.primary, entry.port));
+    } else {
+      const hostnames = [hosts.primary, ...hosts.aliases].join(", ");
+      siteBlocks.push(generateSiteBlock(hostnames, entry.port));
+    }
   }
 
   return `# Managed by toss for ${appName}\n\n${siteBlocks.join("\n\n")}\n`;
+}
+
+export function getDeploymentHosts(
+  environment: string,
+  appName: string,
+  serverHost: string,
+  domain?: string,
+  options?: {
+    prodDomain?: string;
+    prodAliases?: string[];
+  }
+): { primary: string; aliases: string[] } {
+  const primary = getPrimaryHostname(environment, appName, serverHost, domain, options);
+
+  if (environment !== "prod" || !options?.prodAliases?.length) {
+    return { primary, aliases: [] };
+  }
+
+  const aliases = normalizeAliases(options.prodAliases, primary);
+  return { primary, aliases };
+}
+
+function getPrimaryHostname(
+  environment: string,
+  appName: string,
+  serverHost: string,
+  domain?: string,
+  options?: {
+    prodDomain?: string;
+  }
+): string {
+  if (domain) {
+    if (environment === "prod") {
+      const prodDomain = options?.prodDomain?.trim();
+      if (prodDomain) {
+        return prodDomain;
+      }
+    }
+
+    const normalizedDomain = normalizeDomainForApp(appName, domain);
+    return `${environment}.${normalizedDomain}`;
+  }
+
+  // Use sslip.io
+  const sslipHost = formatIpForSslip(serverHost);
+  return `${environment}.${appName}.${sslipHost}.sslip.io`;
+}
+
+function normalizeAliases(aliases: string[], primary: string): string[] {
+  const primaryLower = primary.toLowerCase();
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const alias of aliases) {
+    const trimmed = alias.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const lower = trimmed.toLowerCase();
+    if (lower === primaryLower || seen.has(lower)) {
+      continue;
+    }
+    seen.add(lower);
+    normalized.push(trimmed);
+  }
+
+  return normalized;
 }
 
 /**

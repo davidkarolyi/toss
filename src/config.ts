@@ -19,6 +19,9 @@ export interface TossConfig {
   startCommand: string;
   deployScript: string[];
   domain?: string;
+  prodDomain?: string;
+  prodAliases?: string[];
+  prodAliasRedirect?: boolean;
   dependencies?: Record<string, string>;
   persistentDirs?: string[];
   keepReleases?: number;
@@ -183,6 +186,35 @@ function validateConfig(rawConfig: unknown, configPath: string): TossConfig {
     }
   }
 
+  // Optional: prodDomain
+  if (config.prodDomain !== undefined) {
+    if (typeof config.prodDomain !== "string" || config.prodDomain.trim() === "") {
+      errors.push('"prodDomain" must be a non-empty string if provided');
+    }
+  }
+
+  // Optional: prodAliases
+  if (config.prodAliases !== undefined) {
+    if (!Array.isArray(config.prodAliases)) {
+      errors.push('"prodAliases" must be an array of strings');
+    } else {
+      for (let i = 0; i < config.prodAliases.length; i++) {
+        const value = config.prodAliases[i];
+        if (typeof value !== "string" || value.trim() === "") {
+          errors.push(`"prodAliases[${i}]" must be a non-empty string`);
+        }
+      }
+    }
+  }
+
+  // Optional: prodAliasRedirect
+  if (
+    config.prodAliasRedirect !== undefined &&
+    typeof config.prodAliasRedirect !== "boolean"
+  ) {
+    errors.push('"prodAliasRedirect" must be a boolean if provided');
+  }
+
   // Optional: dependencies
   if (config.dependencies !== undefined) {
     if (
@@ -280,6 +312,11 @@ function validateConfig(rawConfig: unknown, configPath: string): TossConfig {
     startCommand: (config.startCommand as string).trim(),
     deployScript: config.deployScript as string[],
     domain: config.domain ? (config.domain as string).trim() : undefined,
+    prodDomain: config.prodDomain ? (config.prodDomain as string).trim() : undefined,
+    prodAliases: config.prodAliases
+      ? (config.prodAliases as string[]).map((alias) => alias.trim())
+      : undefined,
+    prodAliasRedirect: config.prodAliasRedirect as boolean | undefined,
     dependencies: config.dependencies as Record<string, string> | undefined,
     persistentDirs: normalizedPersistentDirs,
     keepReleases: config.keepReleases as number | undefined,

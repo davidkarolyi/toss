@@ -3,6 +3,7 @@ import {
   formatIpForSslip,
   getDeploymentUrl,
   getDeploymentHostname,
+  normalizeDomainForApp,
   generateCaddyfile,
 } from "./caddy.ts";
 import type { TossState } from "./state.ts";
@@ -36,6 +37,28 @@ describe("getDeploymentHostname", () => {
     test("returns app-scoped domain for prod", () => {
       expect(getDeploymentHostname("prod", "myapp", "64.23.123.45", "example.com")).toBe(
         "prod.myapp.example.com"
+      );
+    });
+
+    test("returns prodDomain when set to apex", () => {
+      expect(
+        getDeploymentHostname("prod", "myapp", "64.23.123.45", "example.com", {
+          prodDomain: "example.com",
+        })
+      ).toBe("example.com");
+    });
+
+    test("returns prodDomain override when provided", () => {
+      expect(
+        getDeploymentHostname("prod", "myapp", "64.23.123.45", "example.com", {
+          prodDomain: "www.example.com",
+        })
+      ).toBe("www.example.com");
+    });
+
+    test("avoids duplicating app name when domain is already app-scoped", () => {
+      expect(getDeploymentHostname("prod", "webref", "64.23.123.45", "webref.ai")).toBe(
+        "prod.webref.ai"
       );
     });
 
@@ -82,11 +105,33 @@ describe("getDeploymentHostname", () => {
   });
 });
 
+describe("normalizeDomainForApp", () => {
+  test("adds app name when domain is not app-scoped", () => {
+    expect(normalizeDomainForApp("myapp", "example.com")).toBe("myapp.example.com");
+  });
+
+  test("preserves domain when already app-scoped", () => {
+    expect(normalizeDomainForApp("webref", "webref.ai")).toBe("webref.ai");
+  });
+
+  test("is case-insensitive when detecting app-scoped domains", () => {
+    expect(normalizeDomainForApp("webref", "WebRef.ai")).toBe("WebRef.ai");
+  });
+});
+
 describe("getDeploymentUrl", () => {
   test("adds https protocol", () => {
     expect(getDeploymentUrl("prod", "myapp", "64.23.123.45", "example.com")).toBe(
       "https://prod.myapp.example.com"
     );
+  });
+
+  test("uses prodDomain when configured", () => {
+    expect(
+      getDeploymentUrl("prod", "myapp", "64.23.123.45", "example.com", {
+        prodDomain: "example.com",
+      })
+    ).toBe("https://example.com");
   });
 
   test("adds https protocol for sslip.io", () => {
@@ -261,5 +306,57 @@ describe("generateCaddyfile", () => {
 
     expect(caddyfile).toContain("feature-branch-123-abc.myapp.app.io {");
     expect(caddyfile).toContain("reverse_proxy localhost:3005");
+  });
+
+  test("supports prod domain with aliases and redirects", () => {
+    const state: TossState = {
+      origin: null,
+      deployments: {
+        prod: { port: 3000 },
+      },
+      appliedDependencies: [],
+      lock: null,
+    };
+
+    const config: CaddyGeneratorConfig = {
+      appName: "myapp",
+      serverHost: "64.23.123.45",
+      domain: "example.com",
+      prodDomain: "example.com",
+      prodAliases: ["www.example.com"],
+      prodAliasRedirect: true,
+    };
+
+    const caddyfile = generateCaddyfile(state, config);
+
+    expect(caddyfile).toContain("www.example.com {");
+    expect(caddyfile).toContain("redir https://example.com{uri} permanent");
+    expect(caddyfile).toContain("example.com {");
+    expect(caddyfile).toContain("reverse_proxy localhost:3000");
+  });
+
+  test("supports prod aliases without redirects", () => {
+    const state: TossState = {
+      origin: null,
+      deployments: {
+        prod: { port: 3000 },
+      },
+      appliedDependencies: [],
+      lock: null,
+    };
+
+    const config: CaddyGeneratorConfig = {
+      appName: "myapp",
+      serverHost: "64.23.123.45",
+      domain: "example.com",
+      prodDomain: "example.com",
+      prodAliases: ["www.example.com"],
+      prodAliasRedirect: false,
+    };
+
+    const caddyfile = generateCaddyfile(state, config);
+
+    expect(caddyfile).toContain("example.com, www.example.com {");
+    expect(caddyfile).toContain("reverse_proxy localhost:3000");
   });
 });
