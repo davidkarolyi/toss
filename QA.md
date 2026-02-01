@@ -231,3 +231,17 @@ Scope: DX features smoke test
 
 ## Secrets pull default
 - `toss secrets pull prod` saves to `.env.prod` by default and prints the chosen path.
+
+Date: 2026-02-01
+Scope: Rollback functionality
+
+## Rollback QA
+- Created new test app `qaapp-rollback` (Node) with `VERSION` file and `/version` endpoint.
+- Deployed prod (v1), updated `VERSION` to v2 and redeployed.
+- Verified current release via `readlink -f` and `/version` (v2).
+- Ran `toss rollback prod 20260201_162332` (explicit release) → success.
+- Verified `/version` returned v1 after rollback.
+
+## Notes
+- Encountered intermittent SSH connection resets during early deploy attempts; retries succeeded.
+  Server logs show active brute-force attempts, which likely caused transient SSH drops.
