@@ -24,6 +24,7 @@ curl -fsSL https://toss.dev/install.sh | sh
 toss init                              # interactive setup wizard (local + VPS)
 toss deploy <env>                      # deploy to environment (e.g., prod, pr-42)
 toss deploy <env> -s KEY=VALUE         # deploy with per-environment secret override
+toss rollback <env> [release]          # roll back to previous or specific release
 toss remove <env>                      # remove an environment (prod cannot be removed)
 toss list                              # list running deployments
 toss status                            # status summary (config + deployments + overrides)
@@ -44,7 +45,18 @@ toss keeps old releases on the server for prod environments (default: 3 releases
 
 **Quick rollback** (instant, uses existing release on server):
 ```bash
-# SSH into the server and manually switch the symlink
+toss rollback prod
+# You will be prompted to select a release.
+# Or specify a release directly:
+toss rollback prod 20260130_100000
+```
+
+This swaps the `current` symlink and restarts the service. Quick rollback
+works when multiple releases are available (prod keeps several by default;
+previews typically keep only one).
+
+**Manual rollback** (SSH, same effect as toss rollback):
+```bash
 ssh root@64.23.123.45
 cd /srv/myapp/prod/releases
 ls -la  # see available releases
@@ -740,6 +752,7 @@ toss logs prod                       # stream logs
 toss logs pr-42 -n 100                     # last 100 lines
 toss logs prod --since "1h"                # logs from last hour
 toss ssh prod                        # SSH into current release dir
+toss rollback prod                        # quick rollback to previous release
 toss remove pr-42                          # remove preview
 toss deploy pr-42 -s DATABASE_URL=...      # deploy with override
 ```
